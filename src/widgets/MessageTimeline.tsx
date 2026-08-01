@@ -429,7 +429,8 @@ function BubbleTime({
 
 function formatDurationMs(duration?: number): string | null {
   if (duration == null || !Number.isFinite(duration) || duration <= 0) return null
-  const totalSec = Math.round(duration / 1000)
+  // Voice notes under 1s still show 0:01 (round-down made them look like 0:00)
+  const totalSec = Math.max(1, Math.round(duration / 1000))
   const m = Math.floor(totalSec / 60)
   const s = totalSec % 60
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -726,7 +727,9 @@ const MediaVideo: React.FC<{
   )
 }
 
-const MediaAudio: React.FC<{ content: any }> = ({ content }) => {
+const MediaAudio: React.FC<{ content: any }> = memo(function MediaAudio({
+  content,
+}) {
   const { ref, near } = useNearViewport()
   const { objectUrl, error } = useAttachmentObjectUrl(
     content,
@@ -735,31 +738,90 @@ const MediaAudio: React.FC<{ content: any }> = ({ content }) => {
     'full',
   )
   const durationLabel = formatDurationMs(content.info?.duration)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [currentLabel, setCurrentLabel] = useState('0:00')
+
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el) return
+    const onTime = () => {
+      const d = el.duration
+      setProgress(Number.isFinite(d) && d > 0 ? el.currentTime / d : 0)
+      setCurrentLabel(formatDurationMs(el.currentTime * 1000) || '0:00')
+    }
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+    const onEnded = () => {
+      setPlaying(false)
+      setProgress(0)
+    }
+    el.addEventListener('timeupdate', onTime)
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    el.addEventListener('ended', onEnded)
+    return () => {
+      el.removeEventListener('timeupdate', onTime)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('ended', onEnded)
+    }
+  }, [objectUrl])
+
+  const toggle = () => {
+    const el = audioRef.current
+    if (!el) return
+    if (el.paused) void el.play()
+    else el.pause()
+  }
 
   return (
-    <div ref={ref} className="tg-audio flex flex-col gap-1.5 min-w-[220px] py-0.5">
+    <div
+      ref={ref}
+      className="tg-audio flex items-center gap-2.5 min-w-[220px] max-w-[280px] py-0.5"
+    >
       {error ? (
         <div className="text-[13px] text-white/50">
           Не удалось загрузить голосовое
         </div>
       ) : !objectUrl ? (
-        <div className="h-8 rounded-lg bg-white/10 animate-pulse" />
+        <div className="h-10 w-full rounded-lg bg-white/10 animate-pulse" />
       ) : (
         <>
-          <div className="text-[12px] text-white/55">
-            Голосовое сообщение{durationLabel ? ` · ${durationLabel}` : ''}
+          <audio ref={audioRef} src={objectUrl} preload="metadata" className="hidden" />
+          <button
+            type="button"
+            onClick={toggle}
+            className="tg-audio-play shrink-0 w-9 h-9 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 transition-colors"
+            aria-label={playing ? 'Пауза' : 'Слушать'}
+          >
+            {playing ? (
+              <span className="flex gap-0.5">
+                <span className="w-[3px] h-3.5 bg-current rounded-sm" />
+                <span className="w-[3px] h-3.5 bg-current rounded-sm" />
+              </span>
+            ) : (
+              <span className="ml-0.5 w-0 h-0 border-y-[6px] border-y-transparent border-l-[10px] border-l-current" />
+            )}
+          </button>
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <div className="tg-audio-track h-1.5 rounded-full bg-white/15 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-white/70 transition-[width] duration-100"
+                style={{ width: `${Math.round(progress * 100)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[11px] text-white/55 tabular-nums">
+              <span>{currentLabel}</span>
+              <span>{durationLabel || 'Голосовое'}</span>
+            </div>
           </div>
-          <audio
-            controls
-            src={objectUrl}
-            preload="metadata"
-            className="w-full max-w-[260px] h-8"
-          />
         </>
       )}
     </div>
   )
-}
+})
 
 const MediaFile: React.FC<{ content: any }> = ({ content }) => {
   const { ref, near } = useNearViewport()

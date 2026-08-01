@@ -14,6 +14,7 @@ import {
   PinOff,
   Bell,
   BellOff,
+  ChevronLeft,
 } from 'lucide-react'
 import type { MatrixClient, Room } from 'matrix-js-sdk'
 import { Preset } from 'matrix-js-sdk'
@@ -23,6 +24,7 @@ import {
   useRoomStore,
   isDirectRoom,
   isGroupRoom,
+  getSpaceChildRooms,
 } from '@/entities/session/model/room.store'
 import { useSessionStore } from '@/entities/session/model/session'
 import { getGradient } from '@/shared/lib/color'
@@ -395,6 +397,7 @@ const TABS: { id: SearchTab; label: string; title: string }[] = [
 
 export function ChatList() {
   const rooms = useRoomStore((state) => state.rooms)
+  const spaceRooms = useRoomStore((state) => state.spaceRooms)
   const status = useRoomStore((state) => state.status)
   const roomFilter = useRoomStore((state) => state.roomFilter)
   const activeRoomId = useRoomStore((state) => state.activeRoomId)
@@ -441,6 +444,7 @@ export function ChatList() {
     anchor: ChatPeekAnchor
   } | null>(null)
   const [pinDragOrder, setPinDragOrder] = useState<string[] | null>(null)
+  const [openSpaceId, setOpenSpaceId] = useState<string | null>(null)
   const pinDragOrderRef = useRef<string[] | null>(null)
   const pinDragMovedRef = useRef(false)
 
@@ -449,25 +453,50 @@ export function ChatList() {
     setPeek({ room, anchor })
   }, [])
 
+  useEffect(() => {
+    setOpenSpaceId(null)
+  }, [roomFilter])
+
+  const openSpace = useMemo(() => {
+    if (!openSpaceId || !client) return null
+    return client.getRoom(openSpaceId)
+  }, [openSpaceId, client])
+
   const filteredByFolder = useMemo(() => {
     switch (roomFilter) {
       case 'direct':
         return rooms.filter(isDirectRoom)
       case 'groups':
         return rooms.filter(isGroupRoom)
+      case 'spaces':
+        return spaceRooms
       default:
         return rooms
     }
-  }, [rooms, roomFilter])
+  }, [rooms, spaceRooms, roomFilter])
 
   const q = query.trim().toLowerCase()
+
+  const matchedSpaces = useMemo(() => {
+    if (roomFilter !== 'spaces' || openSpaceId) return []
+    return filteredByFolder.filter((r) => roomMatchesQuery(r, q))
+  }, [filteredByFolder, roomFilter, openSpaceId, q])
+
+  const matchedSpaceChildren = useMemo(() => {
+    if (roomFilter !== 'spaces' || !openSpace || !client) return []
+    return getSpaceChildRooms(openSpace, client).filter((r) =>
+      roomMatchesQuery(r, q),
+    )
+  }, [roomFilter, openSpace, client, q])
+
   const showTabs = searchFocused || query.length > 0
-  const canReorderPins = tab === 'chats' && !q
+  const canReorderPins =
+    tab === 'chats' && !q && roomFilter !== 'spaces' && !openSpaceId
 
   const matchedRooms = useMemo(() => {
-    if (tab !== 'chats') return filteredByFolder
+    if (tab !== 'chats' || roomFilter === 'spaces') return filteredByFolder
     return filteredByFolder.filter((r) => roomMatchesQuery(r, q))
-  }, [filteredByFolder, q, tab])
+  }, [filteredByFolder, q, tab, roomFilter])
 
   const { pinnedMatched, unpinnedMatched } = useMemo(() => {
     const pinned: Room[] = []
@@ -498,6 +527,14 @@ export function ChatList() {
     | { kind: 'public'; key: string; room: PublicRoomHit }
 
   const selectableRows = useMemo((): SelectableRow[] => {
+    if (tab === 'chats' && roomFilter === 'spaces') {
+      const list = openSpaceId ? matchedSpaceChildren : matchedSpaces
+      return list.map((room) => ({
+        kind: 'room' as const,
+        key: room.roomId,
+        room,
+      }))
+    }
     if (tab === 'chats') {
       return [...pinnedMatched, ...unpinnedMatched].map((room) => ({
         kind: 'room' as const,
@@ -526,6 +563,10 @@ export function ChatList() {
     ]
   }, [
     tab,
+    roomFilter,
+    openSpaceId,
+    matchedSpaces,
+    matchedSpaceChildren,
     pinnedMatched,
     unpinnedMatched,
     messageHits,
@@ -614,7 +655,7 @@ export function ChatList() {
     count: tab === 'chats' ? unpinnedMatched.length : 0,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 60,
-    overscan: 5,
+    overscan: 12,
     useFlushSync: false,
   })
 
@@ -705,6 +746,11 @@ export function ChatList() {
   const activateSearchRow = useCallback(
     (row: SelectableRow) => {
       if (row.kind === 'room') {
+        if (roomFilter === 'spaces' && !openSpaceId) {
+          setOpenSpaceId(row.room.roomId)
+          setQuery('')
+          return
+        }
         setActiveRoomId(row.room.roomId)
         return
       }
@@ -718,7 +764,7 @@ export function ChatList() {
       }
       void joinPublic(row.room.alias || row.room.roomId)
     },
-    [setActiveRoomId, openMessageHit, startDm, joinPublic],
+    [setActiveRoomId, openMessageHit, startDm, joinPublic, roomFilter, openSpaceId],
   )
 
   const handleSearchKeyDown = useCallback(
@@ -788,11 +834,15 @@ export function ChatList() {
   }
 
   const placeholder =
-    tab === 'messages'
-      ? 'Поиск по сообщениям…'
-      : tab === 'people'
-        ? 'Люди или публичные комнаты…'
-        : 'Поиск чатов…'
+    roomFilter === 'spaces'
+      ? openSpaceId
+        ? 'Поиск чатов в пространстве…'
+        : 'Поиск пространств…'
+      : tab === 'messages'
+        ? 'Поиск по сообщениям…'
+        : tab === 'people'
+          ? 'Люди или публичные комнаты…'
+          : 'Поиск чатов…'
 
   return (
     <div className="tg-chatlist w-[300px] shrink-0 flex flex-col border-r overflow-hidden">
@@ -852,7 +902,87 @@ export function ChatList() {
       </div>
 
       <div ref={parentRef} className="flex-1 overflow-y-auto">
-        {tab === 'chats' && (
+        {tab === 'chats' && roomFilter === 'spaces' && (
+          <>
+            {openSpaceId && openSpace && (
+              <div className="px-2 pt-2 pb-1 sticky top-0 z-10 tg-chatlist">
+                <button
+                  type="button"
+                  onClick={() => setOpenSpaceId(null)}
+                  className="flex items-center gap-1 px-1 py-1 rounded-lg text-[13px] text-white/65 hover:text-white hover:bg-white/5 transition-colors duration-ui"
+                >
+                  <ChevronLeft className="w-4 h-4 shrink-0" strokeWidth={2} />
+                  Пространства
+                </button>
+                <div className="mt-1 px-1 text-[12px] text-white/40 truncate">
+                  {openSpace.name || 'Пространство'}
+                </div>
+              </div>
+            )}
+
+            {(openSpaceId ? matchedSpaceChildren : matchedSpaces).length > 0 ? (
+              (openSpaceId ? matchedSpaceChildren : matchedSpaces).map(
+                (room, idx) => (
+                  <div
+                    key={room.roomId}
+                    data-search-idx={idx}
+                    className={clsx(
+                      'rounded-lg',
+                      searchCursor === idx && 'bg-white/10',
+                    )}
+                    onClick={() => {
+                      setSearchCursor(idx)
+                      if (openSpaceId) setActiveRoomId(room.roomId)
+                      else setOpenSpaceId(room.roomId)
+                    }}
+                  >
+                    <RoomItem
+                      room={room}
+                      isActive={openSpaceId ? room.roomId === activeRoomId : false}
+                      isMuted={mutedSet.has(room.roomId)}
+                      draftPreview={
+                        openSpaceId && room.roomId === activeRoomId
+                          ? undefined
+                          : draftPreviewText(draftsMap[room.roomId])
+                      }
+                      draftHasFiles={
+                        !!openSpaceId &&
+                        room.roomId !== activeRoomId &&
+                        !!draftsMap[room.roomId]?.files.length
+                      }
+                      onAvatarLongPress={
+                        openSpaceId ? openAvatarPeek : undefined
+                      }
+                      onContextMenu={
+                        openSpaceId
+                          ? (e, r) => {
+                              setRoomMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                room: r,
+                              })
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                ),
+              )
+            ) : (
+              <p className="text-center text-white/35 text-[13px] py-8 px-3">
+                {q
+                  ? openSpaceId
+                    ? 'Чаты не найдены'
+                    : 'Пространства не найдены'
+                  : openSpaceId
+                    ? 'В этом пространстве нет чатов'
+                    : 'Нет пространств'}
+              </p>
+            )}
+          </>
+        )}
+
+        {tab === 'chats' && roomFilter !== 'spaces' && (
           <>
             {matchedRooms.length > 0 ? (
               <>

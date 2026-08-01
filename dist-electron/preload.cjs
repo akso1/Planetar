@@ -1,11 +1,6 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
-import { ipcRenderer } from 'electron'
+const { contextBridge, ipcRenderer } = require('electron')
 
-window.require = require
-window.global = window
-
-window.electronAPI = {
+contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   ssoLogin: (ssoUrl, redirectUrlPrefix) =>
     ipcRenderer.invoke('sso-login', ssoUrl, redirectUrlPrefix),
@@ -15,6 +10,9 @@ window.electronAPI = {
   setDockBadge: (count) => ipcRenderer.invoke('set-dock-badge', count),
   isWindowFocused: () => ipcRenderer.invoke('is-window-focused'),
   saveTextFile: (opts) => ipcRenderer.invoke('save-text-file', opts),
+  getSessionCredentials: () => ipcRenderer.invoke('session-get'),
+  setSessionCredentials: (creds) => ipcRenderer.invoke('session-set', creds),
+  clearSessionCredentials: () => ipcRenderer.invoke('session-clear'),
   onMainError: (handler) => {
     const listener = (_event, payload) => handler(payload)
     ipcRenderer.on('main-error', listener)
@@ -25,4 +23,4 @@ window.electronAPI = {
     ipcRenderer.on('notification-clicked', listener)
     return () => ipcRenderer.removeListener('notification-clicked', listener)
   },
-}
+})

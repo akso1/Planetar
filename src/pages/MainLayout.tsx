@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CryptoEvent,
   canAcceptVerificationRequest,
@@ -9,14 +9,19 @@ import { matrixService } from '@/shared/api/MatrixService'
 import { startDesktopNotifications } from '@/shared/lib/desktopNotifications'
 import { useVerificationUiStore } from '@/shared/lib/verificationUi'
 import { ChatList } from '../widgets/ChatList'
+import { ChatProtectionWizard } from '../widgets/ChatProtectionWizard'
+import { checkChatProtectionNeeded } from '@/shared/lib/chatProtection'
 import { DeviceVerificationModal } from '../widgets/DeviceVerificationModal'
 import { LeftSidebar } from '../widgets/LeftSidebar'
 import { MessageTimeline } from '../widgets/MessageTimeline'
 import { TitleBar } from '../widgets/TitleBar'
 
+const PROTECTION_PROMPT_KEY = 'matrix-chat-protection-prompted'
+
 export function MainLayout() {
   const client = useSessionStore((s) => s.client)
   const openIncoming = useVerificationUiStore((s) => s.openIncoming)
+  const [protectionOpen, setProtectionOpen] = useState(false)
 
   useEffect(() => {
     if (!client) return
@@ -57,6 +62,28 @@ export function MainLayout() {
     return startDesktopNotifications(client)
   }, [client])
 
+  useEffect(() => {
+    if (!client) return
+    const userId = client.getUserId()
+    if (!userId) return
+    const key = `${PROTECTION_PROMPT_KEY}:${userId}`
+    if (localStorage.getItem(key) === '1') return
+
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      void checkChatProtectionNeeded(client).then((needed) => {
+        if (cancelled || !needed) return
+        localStorage.setItem(key, '1')
+        setProtectionOpen(true)
+      })
+    }, 1800)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [client])
+
   return (
     <div className="tg-app h-screen w-screen flex flex-col bg-chatBg text-chatText">
       <TitleBar />
@@ -68,6 +95,13 @@ export function MainLayout() {
         </main>
       </div>
       {client && <DeviceVerificationModal client={client} />}
+      {client && (
+        <ChatProtectionWizard
+          client={client}
+          open={protectionOpen}
+          onClose={() => setProtectionOpen(false)}
+        />
+      )}
     </div>
   )
 }

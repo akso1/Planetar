@@ -130,7 +130,7 @@ class MatrixService {
   }
 
   private async doStartup(): Promise<boolean> {
-    const creds = this.getStoredCredentials();
+    const creds = await this.getStoredCredentials();
     if (!creds?.deviceId) return false;
 
     // Reuse an already-running client with the same session
@@ -169,7 +169,7 @@ class MatrixService {
     const tempClient = createClient({ baseUrl: cleanHomeserver });
     const loginData = await tempClient.loginWithPassword(userId, password);
 
-    this.storeCredentials({
+    await this.storeCredentials({
       baseUrl: cleanHomeserver,
       userId: loginData.user_id,
       accessToken: loginData.access_token,
@@ -199,7 +199,7 @@ class MatrixService {
       token: loginToken,
     });
 
-    this.storeCredentials({
+    await this.storeCredentials({
       baseUrl: cleanHomeserver,
       userId: loginData.user_id,
       accessToken: loginData.access_token,
@@ -443,30 +443,84 @@ class MatrixService {
     } catch {
       /* ignore */
     }
+
+    try {
+      await window.electronAPI?.clearSessionCredentials?.();
+    } catch (err) {
+      console.warn("clearSessionCredentials failed:", err);
+    }
   }
 
-  private getStoredCredentials(): StoredCredentials | null {
-    const stored = localStorage.getItem(SESSION_KEY);
-    if (stored) {
+  private parseStoredCredentials(raw: string | null): StoredCredentials | null {
+    if (!raw) return null;
+    try {
+      const creds = JSON.parse(raw) as StoredCredentials;
+      if (
+        creds.baseUrl &&
+        creds.userId &&
+        creds.accessToken &&
+        creds.deviceId
+      ) {
+        return creds;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getStoredCredentials(): Promise<StoredCredentials | null> {
+    const api = window.electronAPI;
+    if (api?.getSessionCredentials) {
       try {
-        const creds = JSON.parse(stored) as StoredCredentials;
+        const fromKeychain = await api.getSessionCredentials();
         if (
-          creds.baseUrl &&
-          creds.userId &&
-          creds.accessToken &&
-          creds.deviceId
+          fromKeychain?.baseUrl &&
+          fromKeychain.userId &&
+          fromKeychain.accessToken &&
+          fromKeychain.deviceId
         ) {
-          return creds;
+          // Scrub any leftover plaintext localStorage copy
+          localStorage.removeItem(SESSION_KEY);
+          return fromKeychain as StoredCredentials;
         }
-        return null;
-      } catch {
-        return null;
+      } catch (err) {
+        console.warn("Keychain session read failed:", err);
+      }
+
+      // One-time migration: localStorage → Keychain
+      const legacy = this.parseStoredCredentials(
+        localStorage.getItem(SESSION_KEY),
+      );
+      if (legacy) {
+        try {
+          await api.setSessionCredentials?.(legacy);
+          localStorage.removeItem(SESSION_KEY);
+        } catch (err) {
+          console.warn("Keychain session migrate failed:", err);
+        }
+        return legacy;
+      }
+      return null;
+    }
+
+    return this.parseStoredCredentials(localStorage.getItem(SESSION_KEY));
+  }
+
+  private async storeCredentials(creds: StoredCredentials): Promise<void> {
+    const api = window.electronAPI;
+    if (api?.setSessionCredentials) {
+      try {
+        await api.setSessionCredentials(creds);
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      } catch (err) {
+        console.warn(
+          "Keychain session write failed — falling back to localStorage:",
+          err,
+        );
       }
     }
-    return null;
-  }
-
-  private storeCredentials(creds: StoredCredentials) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(creds));
   }
 }

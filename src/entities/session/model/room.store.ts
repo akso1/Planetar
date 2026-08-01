@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import {
   Direction,
+  EventType,
   MatrixClient,
   MatrixEvent,
   MatrixEventEvent,
@@ -24,7 +25,55 @@ import {
   rememberReadOverride,
 } from '@/shared/lib/readOverrides'
 
-export type RoomFilter = 'all' | 'direct' | 'groups'
+export type RoomFilter = 'all' | 'direct' | 'groups' | 'spaces'
+
+/** Joined child rooms of a space (from m.space.child state). */
+export function getSpaceChildRooms(
+  space: Room,
+  client: MatrixClient,
+): Room[] {
+  const childEvents = space.currentState.getStateEvents(EventType.SpaceChild)
+  if (!childEvents?.length) return []
+
+  const entries: { room: Room; order?: string }[] = []
+  for (const ev of childEvents) {
+    const childId = ev.getStateKey()
+    if (!childId) continue
+    const childRoom = client.getRoom(childId)
+    if (!childRoom || childRoom.getMyMembership() !== 'join') continue
+    const content = ev.getContent() as { order?: string }
+    entries.push({ room: childRoom, order: content.order })
+  }
+
+  entries.sort((a, b) => {
+    if (a.order && b.order) return a.order.localeCompare(b.order)
+    if (a.order) return -1
+    if (b.order) return 1
+    return (a.room.name || a.room.roomId).localeCompare(
+      b.room.name || b.room.roomId,
+    )
+  })
+
+  return entries.map((e) => e.room)
+}
+
+/** Sum unread counts in child rooms of all joined spaces (deduped). */
+export function getSpacesChildUnreadTotal(
+  spaceRooms: Room[],
+  client: MatrixClient,
+  myUserId?: string | null,
+): number {
+  const seen = new Set<string>()
+  let sum = 0
+  for (const space of spaceRooms) {
+    for (const child of getSpaceChildRooms(space, client)) {
+      if (child.isSpaceRoom() || seen.has(child.roomId)) continue
+      seen.add(child.roomId)
+      sum += getRoomUnread(child, myUserId)
+    }
+  }
+  return sum
+}
 
 function isLocalEchoEventId(id: string | undefined | null): boolean {
   return !id || id.startsWith('~')
@@ -241,6 +290,8 @@ export function findFirstUnreadEventId(
 
 interface RoomState {
   rooms: Room[]
+  /** Joined Matrix spaces (excluded from `rooms`). */
+  spaceRooms: Room[]
   status: 'initial' | 'loading' | 'ready' | 'error'
   activeRoomId: string | null
   roomFilter: RoomFilter
@@ -391,7 +442,20 @@ export const useRoomStore = create<RoomState>()(
         .map((id) => byId.get(id))
         .filter((r): r is Room => !!r)
 
-      set({ rooms: [...pinned, ...rest], status: 'ready' })
+      const joinedSpaces = allRooms
+        .filter(
+          (room) =>
+            room.getMyMembership() === 'join' && room.isSpaceRoom(),
+        )
+        .sort((a, b) =>
+          (a.name || a.roomId).localeCompare(b.name || b.roomId),
+        )
+
+      set({
+        rooms: [...pinned, ...rest],
+        spaceRooms: joinedSpaces,
+        status: 'ready',
+      })
     }
 
     const onSync = (state: SyncState) => {
@@ -604,6 +668,7 @@ export const useRoomStore = create<RoomState>()(
 
     return {
       rooms: [],
+      spaceRooms: [],
       status: 'initial',
       activeRoomId: null,
       roomFilter: 'all',
@@ -746,6 +811,7 @@ export const useRoomStore = create<RoomState>()(
           client = null
           set({
             rooms: [],
+            spaceRooms: [],
             status: 'initial',
             activeRoomId: null,
             roomFilter: 'all',

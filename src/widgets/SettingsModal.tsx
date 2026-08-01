@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle,
@@ -6,6 +13,8 @@ import {
   Bell,
   BellOff,
   Bug,
+  Camera,
+  Check,
   ChevronLeft,
   ChevronRight,
   ClipboardCopy,
@@ -55,6 +64,7 @@ import { pushBreadcrumb } from '@/shared/lib/breadcrumbs'
 import { useNotificationPrefsStore } from '@/shared/lib/notificationPrefs'
 import { showNotificationsSelfTest } from '@/shared/lib/desktopNotifications'
 import { DecryptHistoryModal } from './DecryptHistoryModal'
+import { ChatProtectionWizard } from './ChatProtectionWizard'
 import { clsx } from 'clsx'
 import { matrixService } from '@/shared/api/MatrixService'
 import { useVerificationUiStore } from '@/shared/lib/verificationUi'
@@ -91,12 +101,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const [page, setPage] = useState<SettingsPage>('home')
   const [displayName, setDisplayName] = useState('')
+  const [loadedDisplayName, setLoadedDisplayName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [profileStatus, setProfileStatus] = useState<string | null>(null)
+  const [nameBusy, setNameBusy] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const avatarMxcRef = useRef<string | null>(null)
+  const avatarAcquiredRef = useRef(false)
   const [deviceStatus, setDeviceStatus] = useState<
     'loading' | 'verified' | 'unverified' | 'unknown'
   >('loading')
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [isDecryptOpen, setDecryptOpen] = useState(false)
+  const [protectionOpen, setProtectionOpen] = useState(false)
   const [theme, setTheme] = useState<AppTheme>(() => readStoredTheme())
   const chatSortMode = useChatListPrefsStore((s) => s.sortMode)
   const setChatSortMode = useChatListPrefsStore((s) => s.setSortMode)
@@ -120,6 +138,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const userId = client?.getUserId() ?? ''
   const deviceId = client?.getDeviceId() ?? ''
+  const avatarSize = 96
+  const nameDirty = displayName.trim() !== loadedDisplayName.trim()
   const themeLabel =
     THEME_OPTIONS.find((o) => o.id === theme)?.label ?? 'Тема'
   const chatSortLabel =
@@ -148,56 +168,75 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, [isOpen, client])
 
   useEffect(() => {
+    if (!profileStatus) return
+    const timer = window.setTimeout(() => setProfileStatus(null), 3500)
+    return () => clearTimeout(timer)
+  }, [profileStatus])
+
+  const releaseCurrentAvatar = useCallback(() => {
+    if (avatarAcquiredRef.current && avatarMxcRef.current) {
+      releaseAuthenticatedMxcObjectUrl(avatarMxcRef.current, avatarSize)
+      avatarAcquiredRef.current = false
+    }
+  }, [avatarSize])
+
+  const refreshProfile = useCallback(async () => {
+    if (!client || !userId) return
+
+    try {
+      const profile = await client.getProfileInfo(userId)
+      const name =
+        profile.displayname ||
+        userId.split(':')[0].substring(1) ||
+        userId
+      setDisplayName(name)
+      setLoadedDisplayName(name)
+
+      releaseCurrentAvatar()
+      setAvatarUrl(null)
+
+      if (profile.avatar_url) {
+        avatarMxcRef.current = profile.avatar_url
+        try {
+          const objectUrl = await loadAuthenticatedMxcObjectUrl(
+            client,
+            profile.avatar_url,
+            avatarSize,
+          )
+          avatarAcquiredRef.current = true
+          setAvatarUrl(objectUrl)
+        } catch (err) {
+          console.warn('Failed to load avatar', err)
+          avatarMxcRef.current = null
+          setAvatarUrl(null)
+        }
+      } else {
+        avatarMxcRef.current = null
+      }
+    } catch {
+      const fallback = userId.split(':')[0].substring(1) || userId
+      setDisplayName(fallback)
+      setLoadedDisplayName(fallback)
+      releaseCurrentAvatar()
+      avatarMxcRef.current = null
+      setAvatarUrl(null)
+    }
+  }, [client, userId, avatarSize, releaseCurrentAvatar])
+
+  useEffect(() => {
+    if (!isOpen || !client || !userId) return
+
+    void refreshProfile()
+
+    return () => {
+      releaseCurrentAvatar()
+    }
+  }, [isOpen, client, userId, refreshProfile, releaseCurrentAvatar])
+
+  useEffect(() => {
     if (!isOpen || !client || !userId) return
 
     let cancelled = false
-    let avatarMxc: string | null = null
-    let acquired = false
-    let released = false
-    const avatarSize = 96
-    const releaseOnce = () => {
-      if (!acquired || released || !avatarMxc) return
-      released = true
-      releaseAuthenticatedMxcObjectUrl(avatarMxc, avatarSize)
-    }
-
-    const loadProfile = async () => {
-      try {
-        const profile = await client.getProfileInfo(userId)
-        if (cancelled) return
-        setDisplayName(
-          profile.displayname ||
-            userId.split(':')[0].substring(1) ||
-            userId,
-        )
-        if (profile.avatar_url) {
-          try {
-            avatarMxc = profile.avatar_url
-            const objectUrl = await loadAuthenticatedMxcObjectUrl(
-              client,
-              profile.avatar_url,
-              avatarSize,
-            )
-            acquired = true
-            if (cancelled) {
-              releaseOnce()
-              return
-            }
-            setAvatarUrl(objectUrl)
-          } catch (err) {
-            console.warn('Failed to load avatar', err)
-            if (!cancelled) setAvatarUrl(null)
-          }
-        } else {
-          setAvatarUrl(null)
-        }
-      } catch {
-        if (!cancelled) {
-          setDisplayName(userId.split(':')[0].substring(1) || userId)
-          setAvatarUrl(null)
-        }
-      }
-    }
 
     const loadDeviceStatus = async () => {
       try {
@@ -221,12 +260,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       }
     }
 
-    void loadProfile()
     void loadDeviceStatus()
 
     return () => {
       cancelled = true
-      releaseOnce()
     }
   }, [isOpen, client, userId, deviceId])
 
@@ -252,6 +289,56 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       cancelled = true
     }
   }, [verifiedTick, isOpen, client, userId, deviceId])
+
+  const handleSaveDisplayName = async () => {
+    if (!client || nameBusy || avatarBusy) return
+    const name = displayName.trim()
+    if (!name || !nameDirty) return
+
+    setNameBusy(true)
+    setProfileStatus(null)
+    try {
+      await client.setDisplayName(name)
+      setLoadedDisplayName(name)
+      setDisplayName(name)
+      setProfileStatus('Имя сохранено')
+    } catch (err) {
+      setProfileStatus(
+        err instanceof Error ? err.message : 'Не удалось сохранить имя',
+      )
+    } finally {
+      setNameBusy(false)
+    }
+  }
+
+  const handleAvatarPick = () => {
+    if (nameBusy || avatarBusy) return
+    avatarInputRef.current?.click()
+  }
+
+  const handleAvatarFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !client || nameBusy || avatarBusy) return
+
+    setAvatarBusy(true)
+    setProfileStatus(null)
+    try {
+      const uploaded = await client.uploadContent(file, {
+        type: file.type || undefined,
+        name: file.name,
+      })
+      await client.setAvatarUrl(uploaded.content_uri)
+      await refreshProfile()
+      setProfileStatus('Фото обновлено')
+    } catch (err) {
+      setProfileStatus(
+        err instanceof Error ? err.message : 'Не удалось загрузить фото',
+      )
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
 
   const startDeviceVerification = async () => {
     if (!client) return
@@ -453,39 +540,107 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       className="space-y-5"
                     >
                       {/* Profile */}
-                      <div className="flex items-center gap-4">
-                        <div
-                          className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-semibold shrink-0 overflow-hidden"
-                          style={{
-                            background: avatarUrl
-                              ? 'transparent'
-                              : getGradient(userId || 'user'),
-                          }}
-                        >
-                          {avatarUrl ? (
-                            <img
-                              src={avatarUrl}
-                              alt=""
-                              className="w-full h-full object-cover"
-                              onError={() => setAvatarUrl(null)}
-                            />
-                          ) : (
-                            (displayName || '?').charAt(0).toUpperCase()
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[16px] font-semibold text-ink truncate">
-                            {displayName || 'User'}
-                          </div>
-                          <div className="text-[13px] text-ink-muted truncate font-mono">
-                            {userId}
-                          </div>
-                          {deviceId && (
-                            <div className="text-[11px] text-ink-faint mt-0.5 truncate">
-                              Device: {deviceId}
+                      <div className="tg-settings-profile space-y-3">
+                        <div className="flex items-center gap-4">
+                          <button
+                            type="button"
+                            onClick={handleAvatarPick}
+                            disabled={!client || nameBusy || avatarBusy}
+                            className={clsx(
+                              'tg-settings-avatar relative w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-semibold shrink-0 overflow-hidden transition-opacity',
+                              'disabled:opacity-60 disabled:cursor-not-allowed group',
+                            )}
+                            style={{
+                              background: avatarUrl
+                                ? 'transparent'
+                                : getGradient(userId || 'user'),
+                            }}
+                            aria-label="Изменить фото"
+                          >
+                            {avatarUrl ? (
+                              <img
+                                src={avatarUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                                onError={() => setAvatarUrl(null)}
+                              />
+                            ) : (
+                              (displayName || '?').charAt(0).toUpperCase()
+                            )}
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 group-hover:opacity-100 group-disabled:opacity-0 transition-opacity">
+                              <Camera className="w-5 h-5 text-white" />
+                            </span>
+                          </button>
+                          <input
+                            ref={avatarInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) => void handleAvatarFile(event)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] text-ink-muted truncate font-mono">
+                              {userId}
                             </div>
-                          )}
+                            {deviceId && (
+                              <div className="text-[11px] text-ink-faint mt-0.5 truncate">
+                                Device: {deviceId}
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleAvatarPick}
+                              disabled={!client || nameBusy || avatarBusy}
+                              className="mt-1.5 inline-flex items-center gap-1.5 text-[12.5px] text-accent hover:text-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              {avatarBusy ? 'Загрузка…' : 'Изменить фото'}
+                            </button>
+                          </div>
                         </div>
+
+                        <div className="space-y-2">
+                          <label
+                            htmlFor="settings-display-name"
+                            className="text-[12px] text-ink-muted font-medium"
+                          >
+                            Отображаемое имя
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              id="settings-display-name"
+                              type="text"
+                              value={displayName}
+                              onChange={(event) =>
+                                setDisplayName(event.target.value)
+                              }
+                              disabled={!client || nameBusy || avatarBusy}
+                              placeholder="Имя"
+                              className="flex-1 min-w-0 h-9 rounded-lg bg-surface-inset border border-hairline px-3 text-[13px] text-ink placeholder:text-ink-faint outline-none focus:border-accent/80 disabled:opacity-50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveDisplayName()}
+                              disabled={
+                                !client ||
+                                nameBusy ||
+                                avatarBusy ||
+                                !nameDirty ||
+                                !displayName.trim()
+                              }
+                              className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/50 text-ink text-[12.5px] font-medium px-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Check className="w-4 h-4" />
+                              {nameBusy ? 'Сохранение…' : 'Сохранить'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {profileStatus && (
+                          <div className="text-[12px] text-ink-muted leading-relaxed">
+                            {profileStatus}
+                          </div>
+                        )}
                       </div>
 
                       {/* Menu */}
@@ -539,7 +694,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {/* Security */}
                       <div className="rounded-xl bg-surface-inset border border-hairline p-4 space-y-3">
                         <div className="text-[12px] uppercase tracking-wide text-ink-muted font-medium">
-                          Security / Cryptography
+                          Защита чатов
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -549,7 +704,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               {deviceStatusLabel(deviceStatus)}
                             </div>
                             <div className="text-xs text-ink-muted">
-                              Current device verification status
+                              Статус этого устройства
                             </div>
                           </div>
                         </div>
@@ -568,12 +723,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                         <button
                           type="button"
+                          onClick={() => setProtectionOpen(true)}
+                          disabled={!client}
+                          className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-100 text-sm font-medium py-2.5 transition-colors disabled:opacity-50"
+                        >
+                          <Shield className="w-4 h-4" />
+                          Настроить защиту чатов
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => setDecryptOpen(true)}
                           disabled={!client}
                           className="w-full flex items-center justify-center gap-2 rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/50 text-ink text-sm font-medium py-2.5 transition-colors disabled:opacity-50"
                         >
                           <KeyRound className="w-4 h-4" />
-                          Import history keys
+                          Восстановить доступ к истории
                         </button>
                       </div>
 
@@ -967,6 +1132,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           onClose={() => setDecryptOpen(false)}
           client={client}
           room={activeRoom}
+        />
+      )}
+      {client && (
+        <ChatProtectionWizard
+          client={client}
+          open={protectionOpen}
+          onClose={() => setProtectionOpen(false)}
         />
       )}
     </>

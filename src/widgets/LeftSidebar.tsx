@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import { Send, Users, MessagesSquare, Cog, CheckCheck } from 'lucide-react'
+import { useState, useMemo, type ReactNode } from 'react'
+import { Send, Users, MessagesSquare, Cog, CheckCheck, LayoutGrid } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
   useRoomStore,
@@ -7,7 +7,9 @@ import {
   isDirectRoom,
   isGroupRoom,
   getRoomUnread,
+  getSpacesChildUnreadTotal,
 } from '@/entities/session/model/room.store'
+import { useSessionStore } from '@/entities/session/model/session'
 import { AppContextMenu } from '@/shared/ui/AppContextMenu'
 import { SettingsModal } from './SettingsModal'
 import { InvitesBell } from './InvitesBell'
@@ -16,11 +18,13 @@ const iconStyle = 'w-[18px] h-[18px] tg-nav-icon transition-colors'
 
 export function LeftSidebar() {
   const rooms = useRoomStore((state) => state.rooms)
+  const spaceRooms = useRoomStore((state) => state.spaceRooms)
   const roomFilter = useRoomStore((state) => state.roomFilter)
   const setRoomFilter = useRoomStore((state) => state.actions.setRoomFilter)
   const markAllRoomsAsRead = useRoomStore(
     (state) => state.actions.markAllRoomsAsRead,
   )
+  const client = useSessionStore((state) => state.client)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [navMenu, setNavMenu] = useState<{ x: number; y: number } | null>(null)
   const [readAllBusy, setReadAllBusy] = useState(false)
@@ -31,6 +35,14 @@ export function LeftSidebar() {
   const groupsUnread = rooms
     .filter(isGroupRoom)
     .reduce((sum, room) => sum + getRoomUnread(room), 0)
+  const spacesUnread = useMemo(() => {
+    if (!client) return 0
+    return getSpacesChildUnreadTotal(
+      spaceRooms,
+      client,
+      client.getUserId() ?? null,
+    )
+  }, [spaceRooms, client])
   const totalUnread = rooms.reduce(
     (sum, room) => sum + getRoomUnread(room),
     0,
@@ -59,6 +71,12 @@ export function LeftSidebar() {
       name: 'Groups',
       icon: <Users className={iconStyle} strokeWidth={1.75} />,
       count: groupsUnread || undefined,
+    },
+    {
+      id: 'spaces',
+      name: 'Пространства',
+      icon: <LayoutGrid className={iconStyle} strokeWidth={1.75} />,
+      count: spacesUnread || undefined,
     },
   ]
 

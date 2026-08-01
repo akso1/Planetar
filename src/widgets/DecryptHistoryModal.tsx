@@ -110,16 +110,19 @@ export function DecryptHistoryModal({
   return (
     <div className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-chatSidebar border border-hairline p-6 rounded-2xl shadow-panel backdrop-blur-md w-full max-w-sm">
-        <h2 className="text-lg font-bold text-chatText mb-2">Decrypt History</h2>
+        <h2 className="text-lg font-bold text-chatText mb-2">
+          Восстановить доступ к истории
+        </h2>
         <p className="text-sm text-white/45 mb-4">
-          Enter your Security Key or Recovery Key to decrypt older messages.
+          Введите ключ восстановления, чтобы открыть старые зашифрованные
+          сообщения на этом устройстве.
         </p>
         <form onSubmit={handleSubmit}>
           <input
             type="text"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            placeholder="Enter your security key"
+            placeholder="Ключ восстановления"
             className="w-full bg-black/25 border border-white/10 rounded-lg px-3 py-2 text-chatText mb-4 focus:outline-none focus:ring-1 focus:ring-accent"
             disabled={isLoading}
           />
@@ -131,14 +134,14 @@ export function DecryptHistoryModal({
               className="px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/15"
               disabled={isLoading}
             >
-              Cancel
+              Отмена
             </button>
             <button
               type="submit"
               className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white"
               disabled={isLoading}
             >
-              {isLoading ? 'Decrypting...' : 'Decrypt'}
+              {isLoading ? 'Восстановление…' : 'Восстановить'}
             </button>
           </div>
         </form>

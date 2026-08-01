@@ -1,7 +1,8 @@
-import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from "electron";
+import { BrowserWindow, Notification, app, dialog, ipcMain, safeStorage, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import fs$1 from "node:fs";
 //#region electron/gifSearch.ts
 var UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 function envKey(name) {
@@ -150,6 +151,64 @@ async function searchGifsMain(query) {
 	}
 }
 //#endregion
+//#region electron/sessionStore.ts
+function sessionFilePath() {
+	return path.join(app.getPath("userData"), "matrix-session.enc");
+}
+function sessionPlainFallbackPath() {
+	return path.join(app.getPath("userData"), "matrix-session.json");
+}
+function readSessionCredentials() {
+	try {
+		const encPath = sessionFilePath();
+		if (fs$1.existsSync(encPath) && safeStorage.isEncryptionAvailable()) {
+			const buf = fs$1.readFileSync(encPath);
+			const json = safeStorage.decryptString(buf);
+			const parsed = JSON.parse(json);
+			if (parsed?.baseUrl && parsed?.userId && parsed?.accessToken && parsed?.deviceId) return parsed;
+			return null;
+		}
+		const plainPath = sessionPlainFallbackPath();
+		if (fs$1.existsSync(plainPath)) {
+			const json = fs$1.readFileSync(plainPath, "utf8");
+			const parsed = JSON.parse(json);
+			if (parsed?.baseUrl && parsed?.userId && parsed?.accessToken && parsed?.deviceId) return parsed;
+		}
+	} catch (err) {
+		console.warn("[sessionStore] read failed:", err);
+	}
+	return null;
+}
+function writeSessionCredentials(creds) {
+	try {
+		const json = JSON.stringify(creds);
+		if (safeStorage.isEncryptionAvailable()) {
+			const encrypted = safeStorage.encryptString(json);
+			fs$1.writeFileSync(sessionFilePath(), encrypted);
+			try {
+				fs$1.unlinkSync(sessionPlainFallbackPath());
+			} catch {}
+			return { ok: true };
+		}
+		fs$1.writeFileSync(sessionPlainFallbackPath(), json, "utf8");
+		return {
+			ok: true,
+			reason: "plain-fallback"
+		};
+	} catch (err) {
+		console.warn("[sessionStore] write failed:", err);
+		return {
+			ok: false,
+			reason: err instanceof Error ? err.message : String(err)
+		};
+	}
+}
+function clearSessionCredentials() {
+	for (const p of [sessionFilePath(), sessionPlainFallbackPath()]) try {
+		fs$1.unlinkSync(p);
+	} catch {}
+}
+//#endregion
 //#region electron/main.ts
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -181,9 +240,10 @@ function createWindow() {
 			vibrancy: "under-window",
 			backgroundColor: "#00000000",
 			webPreferences: {
-				preload: path.join(__dirname, "preload.js"),
-				nodeIntegration: true,
-				contextIsolation: false,
+				preload: path.join(__dirname, "preload.cjs"),
+				nodeIntegration: false,
+				contextIsolation: true,
+				sandbox: true,
 				partition: "persist:matrix-macos-client"
 			}
 		});
@@ -212,6 +272,19 @@ function extractLoginToken(url) {
 		return match ? decodeURIComponent(match[1]) : null;
 	}
 }
+ipcMain.handle("session-get", () => {
+	return readSessionCredentials();
+});
+ipcMain.handle("session-set", (_event, creds) => {
+	if (!creds || typeof creds.baseUrl !== "string" || typeof creds.userId !== "string" || typeof creds.accessToken !== "string") return {
+		ok: false,
+		reason: "invalid-credentials"
+	};
+	return writeSessionCredentials(creds);
+});
+ipcMain.handle("session-clear", () => {
+	clearSessionCredentials();
+});
 ipcMain.handle("open-external", async (_event, url) => {
 	await shell.openExternal(url);
 });

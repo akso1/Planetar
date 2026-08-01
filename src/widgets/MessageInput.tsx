@@ -8,6 +8,7 @@ import {
   ClipboardPaste,
   Italic,
   Link2,
+  Mic,
   Paperclip,
   Quote,
   Scissors,
@@ -34,7 +35,9 @@ import {
   REPLY_MEDIA_IDS_KEY,
   sendAlbumMessages,
   sendStickerOrGif,
+  sendVoiceMessage,
 } from '@/shared/lib/sendMedia'
+import { VoiceRecorder } from '@/shared/lib/voiceRecorder'
 import { dataUrlToBlob, type StoredSticker } from '@/shared/lib/stickersStore'
 import { buildTextWithOptionalQuote, quoteSnippet } from '@/shared/lib/messageQuote'
 import {
@@ -272,6 +275,9 @@ export function MessageInput({
   const [mentionUserIds, setMentionUserIds] = useState<string[]>([])
   const [isSending, setIsSending] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [voiceRecording, setVoiceRecording] = useState(false)
+  const [voiceElapsedMs, setVoiceElapsedMs] = useState(0)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [composerMenu, setComposerMenu] = useState<{
     x: number
     y: number
@@ -279,6 +285,14 @@ export function MessageInput({
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const stickerBtnRef = useRef<HTMLButtonElement>(null)
+  const voiceRecorderRef = useRef<VoiceRecorder | null>(null)
+  const voiceTimerRef = useRef<number | null>(null)
+  const voiceLockRef = useRef(false)
+  /** Prevents double-send from pointerup + lostpointercapture */
+  const voiceFinishLockRef = useRef(false)
+  /** If user releases before getUserMedia finishes, stop right after start */
+  const voiceStopAfterStartRef = useRef(false)
+  const voicePointerIdRef = useRef<number | null>(null)
   /** Keep selection across context-menu focus loss */
   const menuSelRef = useRef<ComposerSelection | null>(null)
   const selRef = useRef({ start: 0, end: 0 })
@@ -332,8 +346,139 @@ export function MessageInput({
   useEffect(() => {
     return () => {
       stopTyping()
+      if (voiceTimerRef.current != null) {
+        window.clearInterval(voiceTimerRef.current)
+        voiceTimerRef.current = null
+      }
+      voiceRecorderRef.current?.cancel()
+      voiceRecorderRef.current = null
     }
   }, [stopTyping])
+
+  const clearVoiceTimer = useCallback(() => {
+    if (voiceTimerRef.current != null) {
+      window.clearInterval(voiceTimerRef.current)
+      voiceTimerRef.current = null
+    }
+  }, [])
+
+  const startVoiceRecording = useCallback(async () => {
+    if (voiceLockRef.current || isSending || editTarget || !client) return
+    voiceLockRef.current = true
+    voiceFinishLockRef.current = false
+    voiceStopAfterStartRef.current = false
+    setVoiceError(null)
+    try {
+      const recorder = new VoiceRecorder()
+      voiceRecorderRef.current = recorder
+      await recorder.start()
+      // Released during mic permission / setup — discard
+      if (voiceStopAfterStartRef.current) {
+        voiceRecorderRef.current = null
+        recorder.cancel()
+        setVoiceRecording(false)
+        setVoiceElapsedMs(0)
+        setVoiceError('Удерживайте кнопку, чтобы записать голосовое')
+        return
+      }
+      setVoiceRecording(true)
+      setVoiceElapsedMs(0)
+      clearVoiceTimer()
+      const started = Date.now()
+      voiceTimerRef.current = window.setInterval(() => {
+        setVoiceElapsedMs(Date.now() - started)
+      }, 200)
+      stopTyping()
+    } catch (err) {
+      voiceRecorderRef.current = null
+      setVoiceRecording(false)
+      const msg =
+        err instanceof Error ? err.message : 'Не удалось начать запись'
+      setVoiceError(msg)
+      reportAppError({
+        title: 'Голосовое сообщение',
+        summary: msg,
+        detail: err instanceof Error ? err.stack : String(err),
+      })
+    } finally {
+      voiceLockRef.current = false
+    }
+  }, [clearVoiceTimer, client, editTarget, isSending, stopTyping])
+
+  const cancelVoiceRecording = useCallback(() => {
+    clearVoiceTimer()
+    voiceStopAfterStartRef.current = false
+    voiceFinishLockRef.current = false
+    voicePointerIdRef.current = null
+    voiceRecorderRef.current?.cancel()
+    voiceRecorderRef.current = null
+    setVoiceRecording(false)
+    setVoiceElapsedMs(0)
+  }, [clearVoiceTimer])
+
+  const finishVoiceRecording = useCallback(async () => {
+    // Still waiting for getUserMedia — mark for cancel after start
+    if (voiceLockRef.current && !voiceRecorderRef.current?.recording) {
+      voiceStopAfterStartRef.current = true
+      return
+    }
+    if (voiceFinishLockRef.current) return
+    const recorder = voiceRecorderRef.current
+    if (!client || !recorder) {
+      cancelVoiceRecording()
+      return
+    }
+
+    // Claim the recorder immediately so a second event cannot send again
+    voiceFinishLockRef.current = true
+    voiceRecorderRef.current = null
+    clearVoiceTimer()
+    setIsSending(true)
+    setVoiceRecording(false)
+
+    try {
+      if (recorder.elapsedMs < 450) {
+        recorder.cancel()
+        setVoiceError('Слишком короткое голосовое — удерживайте дольше')
+        return
+      }
+      const result = await recorder.stop()
+      setVoiceElapsedMs(0)
+      pushBreadcrumb('voice_send', { roomId: activeRoom.roomId })
+      await sendVoiceMessage(client, activeRoom, result.blob, {
+        durationMs: result.durationMs,
+        mimeType: result.mimeType,
+        fileName: result.fileName,
+        replyToEventId: replyTo?.eventId,
+      })
+      onClearReply?.()
+      onSent?.()
+      setVoiceError(null)
+    } catch (err) {
+      if (err instanceof Error && err.message === 'cancelled') return
+      const msg =
+        err instanceof Error ? err.message : 'Не удалось отправить голосовое'
+      setVoiceError(msg)
+      reportAppError({
+        title: 'Голосовое сообщение',
+        summary: msg,
+        detail: err instanceof Error ? err.stack : String(err),
+      })
+    } finally {
+      setIsSending(false)
+      setVoiceElapsedMs(0)
+      voicePointerIdRef.current = null
+      // Keep finish lock until next successful start clears it
+    }
+  }, [
+    activeRoom,
+    cancelVoiceRecording,
+    clearVoiceTimer,
+    client,
+    onClearReply,
+    onSent,
+    replyTo?.eventId,
+  ])
 
   useEffect(() => {
     if (!externalFiles?.length) return
@@ -1203,8 +1348,45 @@ export function MessageInput({
     ? `Цитата · ${replyTo.senderName}`
     : `В ответ ${replyTo?.senderName ?? ''}`
 
+  const formatVoiceElapsed = (ms: number) => {
+    const sec = Math.floor(ms / 1000)
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
+  }
+
+  const canSendText = editTarget
+    ? !!text.trim()
+    : !!text.trim() ||
+      pending.length > 0 ||
+      !!replyTo?.quoteText?.trim()
+  const showMic =
+    !editTarget && !canSendText && !voiceRecording && !isSending
+
   return (
     <form onSubmit={handleSend} className="tg-composer px-4 py-3">
+      {voiceError && (
+        <div className="mb-2 text-[12px] text-red-300/90 px-1">{voiceError}</div>
+      )}
+
+      {voiceRecording && (
+        <div className="mb-3 flex items-center gap-3 rounded-xl bg-black/25 border border-white/8 px-3 py-2.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-medium text-white/90">Запись…</div>
+            <div className="text-[12px] text-white/50 tabular-nums">
+              {formatVoiceElapsed(voiceElapsedMs)} · отпустите, чтобы отправить
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={cancelVoiceRecording}
+            className="shrink-0 h-8 px-3 rounded-full text-[12px] text-white/70 hover:text-white hover:bg-white/10"
+          >
+            Отмена
+          </button>
+        </div>
+      )}
       {editTarget && (
         <div className="mb-3 flex items-center gap-2 rounded-xl bg-black/25 border border-white/8 overflow-hidden">
           <div className="w-1 self-stretch shrink-0 bg-amber-400/80" />
@@ -1418,32 +1600,100 @@ export function MessageInput({
           className="tg-composer-input flex-1 rounded-[22px] px-4 py-[10px] text-[14.5px] leading-snug"
         />
 
-        <button
-          type="submit"
-          disabled={
-            isSending ||
-            (editTarget
-              ? !text.trim()
-              : !text.trim() &&
-                pending.length === 0 &&
-                !replyTo?.quoteText?.trim())
-          }
-          className="tg-send-btn w-10 h-10 flex items-center justify-center rounded-full shrink-0 shadow-md shadow-black/30 disabled:opacity-40"
-          aria-label={editTarget ? 'Сохранить' : 'Отправить'}
-        >
-          {isSending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="w-[18px] h-[18px] -mr-0.5"
-            >
-              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-            </svg>
-          )}
-        </button>
+        {showMic || voiceRecording ? (
+          <button
+            type="button"
+            disabled={isSending}
+            onPointerDown={(e) => {
+              if (voiceRecording || voiceFinishLockRef.current || isSending) {
+                return
+              }
+              // Only primary button / touch
+              if (e.button != null && e.button !== 0) return
+              e.preventDefault()
+              voicePointerIdRef.current = e.pointerId
+              try {
+                ;(e.currentTarget as HTMLButtonElement).setPointerCapture(
+                  e.pointerId,
+                )
+              } catch {
+                /* ignore */
+              }
+              void startVoiceRecording()
+            }}
+            onPointerUp={(e) => {
+              if (
+                voicePointerIdRef.current != null &&
+                e.pointerId !== voicePointerIdRef.current
+              ) {
+                return
+              }
+              e.preventDefault()
+              voicePointerIdRef.current = null
+              void finishVoiceRecording()
+            }}
+            onPointerCancel={(e) => {
+              if (
+                voicePointerIdRef.current != null &&
+                e.pointerId !== voicePointerIdRef.current
+              ) {
+                return
+              }
+              voicePointerIdRef.current = null
+              cancelVoiceRecording()
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            className={clsx(
+              'tg-send-btn w-10 h-10 flex items-center justify-center rounded-full shrink-0 shadow-md shadow-black/30 disabled:opacity-40 select-none',
+              voiceRecording && 'ring-2 ring-red-400/70',
+            )}
+            aria-label={
+              voiceRecording
+                ? 'Отпустите, чтобы отправить'
+                : 'Удерживайте, чтобы записать голосовое'
+            }
+            title={
+              voiceRecording
+                ? 'Отпустите, чтобы отправить'
+                : 'Удерживайте, чтобы записать голосовое'
+            }
+          >
+            {isSending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : voiceRecording ? (
+              <span className="w-3 h-3 rounded-sm bg-current" />
+            ) : (
+              <Mic className="w-5 h-5" />
+            )}
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={
+              isSending ||
+              (editTarget
+                ? !text.trim()
+                : !text.trim() &&
+                  pending.length === 0 &&
+                  !replyTo?.quoteText?.trim())
+            }
+            className="tg-send-btn w-10 h-10 flex items-center justify-center rounded-full shrink-0 shadow-md shadow-black/30 disabled:opacity-40"
+            aria-label={editTarget ? 'Сохранить' : 'Отправить'}
+          >
+            {isSending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="w-[18px] h-[18px] -mr-0.5"
+              >
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            )}
+          </button>
+        )}
       </div>
 
       {composerMenu && (

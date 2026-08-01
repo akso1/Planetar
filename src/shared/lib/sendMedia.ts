@@ -82,7 +82,7 @@ async function prepareEncryptedSend(
 
 /**
  * Upload one file (encrypt attachment when room is E2EE) and send as
- * m.image / m.video / m.file.
+ * m.image / m.video / m.audio / m.file.
  * The Matrix event itself is Megolm-encrypted by the SDK when the room has encryption.
  */
 export async function sendMediaMessage(
@@ -96,6 +96,10 @@ export async function sendMediaMessage(
     room?: Room
     /** Attach m.in_reply_to when this is the first item in a reply */
     replyToEventId?: string
+    /** Override msgtype / info (e.g. voice notes) */
+    msgtype?: 'm.image' | 'm.video' | 'm.audio' | 'm.file'
+    extraInfo?: Record<string, unknown>
+    body?: string
   },
 ): Promise<void> {
   const room = opts.room ?? client.getRoom(roomId) ?? undefined
@@ -108,20 +112,25 @@ export async function sendMediaMessage(
     : isVideoFile(file)
       ? await readVideoMeta(file)
       : {}
-  const msgtype = isImageFile(file)
-    ? 'm.image'
-    : isVideoFile(file)
-      ? 'm.video'
-      : 'm.file'
+  const msgtype =
+    opts.msgtype ??
+    (isImageFile(file)
+      ? 'm.image'
+      : isVideoFile(file)
+        ? 'm.video'
+        : isAudioFile(file)
+          ? 'm.audio'
+          : 'm.file')
   const info: Record<string, unknown> = {
     mimetype: file.type || 'application/octet-stream',
     size: file.size,
     ...dims,
+    ...opts.extraInfo,
   }
 
   const content: Record<string, unknown> = {
     msgtype,
-    body: file.name,
+    body: opts.body ?? file.name,
     info,
   }
 
@@ -160,6 +169,40 @@ export async function sendMediaMessage(
   }
 
   await client.sendMessage(roomId, content as any)
+}
+
+function isAudioFile(file: File): boolean {
+  return file.type.startsWith('audio/')
+}
+
+/** Recorded voice note as m.audio (MSC3245-ish: info.duration + voice flag). */
+export async function sendVoiceMessage(
+  client: MatrixClient,
+  room: Room,
+  blob: Blob,
+  opts: {
+    durationMs: number
+    mimeType: string
+    fileName: string
+    replyToEventId?: string
+  },
+): Promise<void> {
+  const file = new File([blob], opts.fileName, {
+    type: opts.mimeType || blob.type || 'audio/webm',
+  })
+  const encrypted = room.hasEncryptionStateEvent()
+  await sendMediaMessage(client, room.roomId, file, {
+    encrypted,
+    room,
+    replyToEventId: opts.replyToEventId,
+    msgtype: 'm.audio',
+    body: 'Голосовое сообщение',
+    extraInfo: {
+      duration: Math.round(opts.durationMs),
+      // Element / Telegram-like hint that this is a voice message
+      ['org.matrix.msc3245.voice']: {},
+    },
+  })
 }
 
 /** Send multiple files as one album + optional caption text. */

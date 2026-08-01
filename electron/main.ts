@@ -10,6 +10,12 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { searchGifsMain } from './gifSearch'
+import {
+  clearSessionCredentials,
+  readSessionCredentials,
+  writeSessionCredentials,
+  type StoredSessionCredentials,
+} from './sessionStore'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -50,9 +56,11 @@ function createWindow() {
       vibrancy: 'under-window',
       backgroundColor: '#00000000',
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-        nodeIntegration: true,
-        contextIsolation: false,
+        // Built as preload.cjs — required when package.json has "type": "module"
+        preload: path.join(__dirname, 'preload.cjs'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
         // Persist localStorage / IndexedDB across restarts
         partition: 'persist:matrix-macos-client',
       },
@@ -95,6 +103,29 @@ function extractLoginToken(url: string): string | null {
     return match ? decodeURIComponent(match[1]) : null
   }
 }
+
+ipcMain.handle('session-get', () => {
+  return readSessionCredentials()
+})
+
+ipcMain.handle(
+  'session-set',
+  (_event, creds: StoredSessionCredentials) => {
+    if (
+      !creds ||
+      typeof creds.baseUrl !== 'string' ||
+      typeof creds.userId !== 'string' ||
+      typeof creds.accessToken !== 'string'
+    ) {
+      return { ok: false as const, reason: 'invalid-credentials' }
+    }
+    return writeSessionCredentials(creds)
+  },
+)
+
+ipcMain.handle('session-clear', () => {
+  clearSessionCredentials()
+})
 
 ipcMain.handle('open-external', async (_event, url: string) => {
   await shell.openExternal(url)

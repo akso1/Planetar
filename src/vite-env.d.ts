@@ -23,6 +23,19 @@ export type ElectronAPI = {
     defaultPath: string
     content: string
   }) => Promise<{ ok: boolean; path?: string; canceled?: boolean }>
+  getSessionCredentials?: () => Promise<{
+    baseUrl: string
+    userId: string
+    accessToken: string
+    deviceId?: string
+  } | null>
+  setSessionCredentials?: (creds: {
+    baseUrl: string
+    userId: string
+    accessToken: string
+    deviceId?: string
+  }) => Promise<{ ok: boolean; reason?: string }>
+  clearSessionCredentials?: () => Promise<void>
   onMainError?: (handler: (payload: MainErrorPayload) => void) => () => void
   onNotificationClicked?: (
     handler: (payload: { roomId: string; eventId?: string }) => void,
@@ -32,6 +45,5 @@ export type ElectronAPI = {
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
-    require?: NodeRequire
   }
 }
