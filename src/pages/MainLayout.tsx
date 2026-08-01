@@ -60,7 +60,7 @@ export function MainLayout() {
   return (
     <div className="tg-app h-screen w-screen flex flex-col bg-chatBg text-chatText">
       <TitleBar />
-      <div className="flex-grow flex h-[calc(100vh-38px)] overflow-hidden">
+      <div className="grow flex h-[calc(100vh-38px)] overflow-hidden">
         <LeftSidebar />
         <ChatList />
         <main className="tg-main flex-1 min-w-0 flex flex-col overflow-hidden">

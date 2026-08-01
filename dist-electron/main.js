@@ -1,226 +1,183 @@
-import { BrowserWindow, Notification, app, dialog, ipcMain, shell } from "electron";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { BrowserWindow as e, Notification as t, app as n, dialog as r, ipcMain as i, shell as a } from "electron";
+import o from "node:fs/promises";
+import s from "node:path";
+import { fileURLToPath as c } from "node:url";
 //#region electron/gifSearch.ts
-var UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-function envKey(name) {
-	const v = process.env[name];
-	return v && v.trim() ? v.trim() : void 0;
+var l = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+function u(e) {
+	let t = process.env[e];
+	return t && t.trim() ? t.trim() : void 0;
 }
-async function searchTenor(query) {
-	const key = envKey("VITE_TENOR_API_KEY") || envKey("TENOR_API_KEY");
-	if (!key) return [];
-	const q = query.trim() || "funny";
-	const url = `https://g.tenor.com/v1/search?q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}&client_key=matrix_macos&limit=24&media_filter=minimal`;
-	const res = await fetch(url, { headers: { "User-Agent": UA } });
-	if (!res.ok) throw new Error(`Tenor HTTP ${res.status}`);
-	return ((await res.json()).results || []).map((r) => {
-		const m = r.media?.[0];
-		const preview = m?.nanogif || m?.tinygif || m?.gif;
-		const full = m?.gif || m?.tinygif || m?.nanogif;
+async function d(e) {
+	let t = u("VITE_TENOR_API_KEY") || u("TENOR_API_KEY");
+	if (!t) return [];
+	let n = e.trim() || "funny", r = `https://g.tenor.com/v1/search?q=${encodeURIComponent(n)}&key=${encodeURIComponent(t)}&client_key=matrix_macos&limit=24&media_filter=minimal`, i = await fetch(r, { headers: { "User-Agent": l } });
+	if (!i.ok) throw Error(`Tenor HTTP ${i.status}`);
+	return ((await i.json()).results || []).map((e) => {
+		let t = e.media?.[0], n = t?.nanogif || t?.tinygif || t?.gif, r = t?.gif || t?.tinygif || t?.nanogif;
 		return {
-			id: `tenor_${r.id}`,
-			title: r.title || "GIF",
-			previewUrl: preview?.url || "",
-			url: full?.url || preview?.url || "",
-			w: full?.dims?.[0],
-			h: full?.dims?.[1],
+			id: `tenor_${e.id}`,
+			title: e.title || "GIF",
+			previewUrl: n?.url || "",
+			url: r?.url || n?.url || "",
+			w: r?.dims?.[0],
+			h: r?.dims?.[1],
 			source: "tenor"
 		};
-	}).filter((g) => g.previewUrl && g.url);
+	}).filter((e) => e.previewUrl && e.url);
 }
-async function searchGiphy(query) {
-	const key = envKey("VITE_GIPHY_API_KEY") || envKey("GIPHY_API_KEY");
-	if (!key) return [];
-	const q = query.trim() || "funny";
-	const url = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&limit=24&rating=pg-13`;
-	const res = await fetch(url, { headers: { "User-Agent": UA } });
-	if (!res.ok) throw new Error(`Giphy HTTP ${res.status}`);
-	return ((await res.json()).data || []).map((r) => {
-		const preview = r.images?.fixed_width_small?.url || r.images?.preview_gif?.url || r.images?.downsized?.url || "";
-		const full = r.images?.downsized?.url || r.images?.original?.url || preview;
-		const w = Number(r.images?.downsized?.width || r.images?.original?.width);
-		const h = Number(r.images?.downsized?.height || r.images?.original?.height);
+async function f(e) {
+	let t = u("VITE_GIPHY_API_KEY") || u("GIPHY_API_KEY");
+	if (!t) return [];
+	let n = e.trim() || "funny", r = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(t)}&q=${encodeURIComponent(n)}&limit=24&rating=pg-13`, i = await fetch(r, { headers: { "User-Agent": l } });
+	if (!i.ok) throw Error(`Giphy HTTP ${i.status}`);
+	return ((await i.json()).data || []).map((e) => {
+		let t = e.images?.fixed_width_small?.url || e.images?.preview_gif?.url || e.images?.downsized?.url || "", n = e.images?.downsized?.url || e.images?.original?.url || t, r = Number(e.images?.downsized?.width || e.images?.original?.width), i = Number(e.images?.downsized?.height || e.images?.original?.height);
 		return {
-			id: `giphy_${r.id}`,
-			title: r.title || "GIF",
-			previewUrl: preview,
-			url: full,
-			w: Number.isFinite(w) ? w : void 0,
-			h: Number.isFinite(h) ? h : void 0,
+			id: `giphy_${e.id}`,
+			title: e.title || "GIF",
+			previewUrl: t,
+			url: n,
+			w: Number.isFinite(r) ? r : void 0,
+			h: Number.isFinite(i) ? i : void 0,
 			source: "giphy"
 		};
-	}).filter((g) => g.previewUrl && g.url);
+	}).filter((e) => e.previewUrl && e.url);
 }
-function looksLikeGif(url) {
-	const u = url.toLowerCase();
-	return u.includes(".gif") || u.includes("media.tenor.com") || u.includes("giphy.com") || u.includes("media.giphy.com") || u.includes("/gif");
+function p(e) {
+	let t = e.toLowerCase();
+	return t.includes(".gif") || t.includes("media.tenor.com") || t.includes("giphy.com") || t.includes("media.giphy.com") || t.includes("/gif");
 }
-async function getDdgVqd(query) {
-	const res = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, { headers: {
-		"User-Agent": UA,
+async function m(e) {
+	let t = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(e)}`, { headers: {
+		"User-Agent": l,
 		Accept: "text/html"
 	} });
-	if (!res.ok) throw new Error(`DDG HTML HTTP ${res.status}`);
-	const html = await res.text();
-	const m = html.match(/vqd=["']([\d-]+)["']/) || html.match(/vqd=([\d-]+)/);
-	if (!m?.[1]) throw new Error("DDG vqd not found");
-	return m[1];
+	if (!t.ok) throw Error(`DDG HTML HTTP ${t.status}`);
+	let n = await t.text(), r = n.match(/vqd=["']([\d-]+)["']/) || n.match(/vqd=([\d-]+)/);
+	if (!r?.[1]) throw Error("DDG vqd not found");
+	return r[1];
 }
-/** Keyless GIF search via DuckDuckGo image search (type:gif). */
-async function searchDuckDuckGo(query) {
-	const base = query.trim() || "funny";
-	const q = /\bgif\b/i.test(base) ? base : `${base} gif`;
-	const vqd = await getDdgVqd(q);
-	const url = new URL("https://duckduckgo.com/i.js");
-	url.searchParams.set("l", "us-en");
-	url.searchParams.set("o", "json");
-	url.searchParams.set("q", q);
-	url.searchParams.set("vqd", vqd);
-	url.searchParams.set("f", ",,,,type:gif,,");
-	url.searchParams.set("p", "1");
-	const res = await fetch(url.toString(), { headers: {
-		"User-Agent": UA,
+async function h(e) {
+	let t = e.trim() || "funny", n = /\bgif\b/i.test(t) ? t : `${t} gif`, r = await m(n), i = new URL("https://duckduckgo.com/i.js");
+	i.searchParams.set("l", "us-en"), i.searchParams.set("o", "json"), i.searchParams.set("q", n), i.searchParams.set("vqd", r), i.searchParams.set("f", ",,,,type:gif,,"), i.searchParams.set("p", "1");
+	let a = await fetch(i.toString(), { headers: {
+		"User-Agent": l,
 		Referer: "https://duckduckgo.com/",
 		Accept: "application/json"
 	} });
-	if (!res.ok) throw new Error(`DDG i.js HTTP ${res.status}`);
-	const data = await res.json();
-	const hits = [];
-	for (const r of data.results || []) {
-		const image = r.image || "";
-		const thumb = r.thumbnail || image;
-		if (!image) continue;
-		if (!looksLikeGif(image) && !looksLikeGif(thumb)) continue;
-		hits.push({
-			id: `ddg_${hits.length}_${Buffer.from(image).toString("base64url").slice(0, 16)}`,
-			title: r.title || "GIF",
-			previewUrl: thumb || image,
-			url: image,
-			w: typeof r.width === "number" ? r.width : void 0,
-			h: typeof r.height === "number" ? r.height : void 0,
+	if (!a.ok) throw Error(`DDG i.js HTTP ${a.status}`);
+	let o = await a.json(), s = [];
+	for (let e of o.results || []) {
+		let t = e.image || "", n = e.thumbnail || t;
+		if (t && !(!p(t) && !p(n)) && (s.push({
+			id: `ddg_${s.length}_${Buffer.from(t).toString("base64url").slice(0, 16)}`,
+			title: e.title || "GIF",
+			previewUrl: n || t,
+			url: t,
+			w: typeof e.width == "number" ? e.width : void 0,
+			h: typeof e.height == "number" ? e.height : void 0,
 			source: "ddg"
-		});
-		if (hits.length >= 24) break;
+		}), s.length >= 24)) break;
 	}
-	if (!hits.length) for (const r of (data.results || []).slice(0, 24)) {
-		const image = r.image || "";
-		if (!image) continue;
-		hits.push({
-			id: `ddg_${hits.length}_${Buffer.from(image).toString("base64url").slice(0, 16)}`,
-			title: r.title || "GIF",
-			previewUrl: r.thumbnail || image,
-			url: image,
-			w: typeof r.width === "number" ? r.width : void 0,
-			h: typeof r.height === "number" ? r.height : void 0,
+	if (!s.length) for (let e of (o.results || []).slice(0, 24)) {
+		let t = e.image || "";
+		t && s.push({
+			id: `ddg_${s.length}_${Buffer.from(t).toString("base64url").slice(0, 16)}`,
+			title: e.title || "GIF",
+			previewUrl: e.thumbnail || t,
+			url: t,
+			w: typeof e.width == "number" ? e.width : void 0,
+			h: typeof e.height == "number" ? e.height : void 0,
 			source: "ddg"
 		});
 	}
-	return hits;
+	return s;
 }
-async function searchGifsMain(query) {
-	const errors = [];
-	for (const [name, fn] of [["tenor", searchTenor], ["giphy", searchGiphy]]) try {
-		const results = await fn(query);
-		if (results.length) return {
-			results,
+async function g(e) {
+	let t = [];
+	for (let [n, r] of [["tenor", d], ["giphy", f]]) try {
+		let t = await r(e);
+		if (t.length) return {
+			results: t,
 			error: null
 		};
-	} catch (err) {
-		console.warn(`[gif] ${name} failed`, err);
-		errors.push(name);
+	} catch (e) {
+		console.warn(`[gif] ${n} failed`, e), t.push(n);
 	}
 	try {
-		const results = await searchDuckDuckGo(query);
-		if (results.length) return {
-			results,
+		let t = await h(e);
+		return t.length ? {
+			results: t,
 			error: null
-		};
-		return {
+		} : {
 			results: [],
 			error: "По запросу ничего не найдено"
 		};
-	} catch (err) {
-		console.warn("[gif] ddg failed", err);
-		return {
+	} catch (e) {
+		return console.warn("[gif] ddg failed", e), {
 			results: [],
-			error: "Не удалось загрузить GIF. Проверьте сеть." + (errors.length ? ` (также: ${errors.join(", ")})` : "")
+			error: "Не удалось загрузить GIF. Проверьте сеть." + (t.length ? ` (также: ${t.join(", ")})` : "")
 		};
 	}
 }
 //#endregion
 //#region electron/main.ts
-var __dirname = path.dirname(fileURLToPath(import.meta.url));
-var VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-var mainWindow = null;
-var creatingWindow = false;
-function broadcastMainError(error, kind) {
-	const err = error instanceof Error ? error : new Error(String(error));
-	const payload = {
-		title: kind === "rejection" ? "Сбой фоновой задачи (main)" : "Сбой системного процесса",
+var _ = s.dirname(c(import.meta.url)), v = process.env.VITE_DEV_SERVER_URL, y = null, b = !1;
+function x(t, n) {
+	let r = t instanceof Error ? t : Error(String(t)), i = {
+		title: n === "rejection" ? "Сбой фоновой задачи (main)" : "Сбой системного процесса",
 		summary: "Ошибка в Electron main process. Окно приложения постарались сохранить.",
-		detail: err.message,
-		stack: err.stack
+		detail: r.message,
+		stack: r.stack
 	};
-	for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send("main-error", payload);
+	for (let t of e.getAllWindows()) t.isDestroyed() || t.webContents.send("main-error", i);
 }
-function createWindow() {
-	if (creatingWindow) return;
-	creatingWindow = true;
-	try {
-		mainWindow = new BrowserWindow({
-			width: 1200,
-			height: 800,
-			frame: false,
-			titleBarStyle: "hidden",
-			trafficLightPosition: {
-				x: 16,
-				y: 16
-			},
-			vibrancy: "under-window",
-			backgroundColor: "#00000000",
-			webPreferences: {
-				preload: path.join(__dirname, "preload.js"),
-				nodeIntegration: true,
-				contextIsolation: false,
-				partition: "persist:matrix-macos-client"
-			}
-		});
-		if (VITE_DEV_SERVER_URL) {
-			mainWindow.loadURL(VITE_DEV_SERVER_URL);
-			mainWindow.webContents.openDevTools();
-		} else mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
-		mainWindow.webContents.on("render-process-gone", (_event, details) => {
-			broadcastMainError(/* @__PURE__ */ new Error(`Renderer crashed: ${details.reason} (exit ${details.exitCode})`), "exception");
-			if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
-			mainWindow = null;
-		});
-		mainWindow.on("closed", () => {
-			mainWindow = null;
-		});
-	} finally {
-		creatingWindow = false;
+function S() {
+	if (!b) {
+		b = !0;
+		try {
+			y = new e({
+				width: 1200,
+				height: 800,
+				frame: !1,
+				titleBarStyle: "hidden",
+				trafficLightPosition: {
+					x: 16,
+					y: 16
+				},
+				vibrancy: "under-window",
+				backgroundColor: "#00000000",
+				webPreferences: {
+					preload: s.join(_, "preload.js"),
+					nodeIntegration: !0,
+					contextIsolation: !1,
+					partition: "persist:matrix-macos-client"
+				}
+			}), v ? (y.loadURL(v), y.webContents.openDevTools()) : y.loadFile(s.join(_, "..", "dist", "index.html")), y.webContents.on("render-process-gone", (e, t) => {
+				x(/* @__PURE__ */ Error(`Renderer crashed: ${t.reason} (exit ${t.exitCode})`), "exception"), y && !y.isDestroyed() && y.destroy(), y = null;
+			}), y.on("closed", () => {
+				y = null;
+			});
+		} finally {
+			b = !1;
+		}
 	}
 }
-/** Extract loginToken from an SSO redirect URL */
-function extractLoginToken(url) {
+function C(e) {
 	try {
-		return new URL(url).searchParams.get("loginToken");
+		return new URL(e).searchParams.get("loginToken");
 	} catch {
-		const match = url.match(/[?&]loginToken=([^&]+)/);
-		return match ? decodeURIComponent(match[1]) : null;
+		let t = e.match(/[?&]loginToken=([^&]+)/);
+		return t ? decodeURIComponent(t[1]) : null;
 	}
 }
-ipcMain.handle("open-external", async (_event, url) => {
-	await shell.openExternal(url);
-});
-ipcMain.handle("save-text-file", async (_event, opts) => {
-	const content = typeof opts?.content === "string" ? opts.content : "";
-	const defaultPath = typeof opts?.defaultPath === "string" && opts.defaultPath.trim() ? opts.defaultPath.trim() : `matrix-error-report-${Date.now()}.txt`;
-	const result = await dialog.showSaveDialog(mainWindow ?? void 0, {
+i.handle("open-external", async (e, t) => {
+	await a.openExternal(t);
+}), i.handle("save-text-file", async (e, t) => {
+	let n = typeof t?.content == "string" ? t.content : "", i = typeof t?.defaultPath == "string" && t.defaultPath.trim() ? t.defaultPath.trim() : `matrix-error-report-${Date.now()}.txt`, a = await r.showSaveDialog(y ?? void 0, {
 		title: "Сохранить отчёт",
-		defaultPath,
+		defaultPath: i,
 		filters: [{
 			name: "Text",
 			extensions: ["txt"]
@@ -229,151 +186,91 @@ ipcMain.handle("save-text-file", async (_event, opts) => {
 			extensions: ["*"]
 		}]
 	});
-	if (result.canceled || !result.filePath) return {
-		ok: false,
-		canceled: true
-	};
-	await fs.writeFile(result.filePath, content, "utf8");
-	return {
-		ok: true,
-		path: result.filePath
-	};
-});
-ipcMain.handle("search-gifs", async (_event, query) => {
-	return searchGifsMain(typeof query === "string" ? query : "");
-});
-ipcMain.handle("set-dock-badge", (_event, count) => {
-	if (process.platform !== "darwin" || !app.dock) return;
-	const n = typeof count === "number" ? count : Number(count);
-	if (!Number.isFinite(n) || n <= 0) {
-		app.dock.setBadge("");
+	return a.canceled || !a.filePath ? {
+		ok: !1,
+		canceled: !0
+	} : (await o.writeFile(a.filePath, n, "utf8"), {
+		ok: !0,
+		path: a.filePath
+	});
+}), i.handle("search-gifs", async (e, t) => g(typeof t == "string" ? t : "")), i.handle("set-dock-badge", (e, t) => {
+	if (process.platform !== "darwin" || !n.dock) return;
+	let r = typeof t == "number" ? t : Number(t);
+	if (!Number.isFinite(r) || r <= 0) {
+		n.dock.setBadge("");
 		return;
 	}
-	app.dock.setBadge(n > 99 ? "99+" : String(Math.floor(n)));
-});
-ipcMain.handle("is-window-focused", () => {
-	return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
-});
-ipcMain.handle("show-notification", (_event, payload) => {
-	if (!Notification.isSupported()) {
-		console.warn("[notifications] Notification.isSupported() === false");
-		return {
-			ok: false,
-			reason: "unsupported"
-		};
-	}
-	const title = typeof payload?.title === "string" && payload.title.trim() ? payload.title.trim() : "Новое сообщение";
-	const body = typeof payload?.body === "string" ? payload.body.slice(0, 240) : "";
-	const roomId = typeof payload?.roomId === "string" ? payload.roomId : void 0;
-	const eventId = typeof payload?.eventId === "string" ? payload.eventId : void 0;
+	n.dock.setBadge(r > 99 ? "99+" : String(Math.floor(r)));
+}), i.handle("is-window-focused", () => !!y && !y.isDestroyed() && y.isFocused()), i.handle("show-notification", (e, r) => {
+	if (!t.isSupported()) return console.warn("[notifications] Notification.isSupported() === false"), {
+		ok: !1,
+		reason: "unsupported"
+	};
+	let i = typeof r?.title == "string" && r.title.trim() ? r.title.trim() : "Новое сообщение", a = typeof r?.body == "string" ? r.body.slice(0, 240) : "", o = typeof r?.roomId == "string" ? r.roomId : void 0, s = typeof r?.eventId == "string" ? r.eventId : void 0;
 	try {
-		const notif = new Notification({
-			title,
-			body,
-			silent: false
+		let e = new t({
+			title: i,
+			body: a,
+			silent: !1
 		});
-		notif.on("show", () => {
-			console.info("[notifications] shown:", title);
-		});
-		notif.on("failed", (_e, err) => {
-			console.warn("[notifications] failed:", err);
-		});
-		notif.on("click", () => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				if (mainWindow.isMinimized()) mainWindow.restore();
-				mainWindow.show();
-				mainWindow.focus();
-				if (roomId) mainWindow.webContents.send("notification-clicked", {
-					roomId,
-					eventId
-				});
-			}
-		});
-		notif.show();
-		if (process.platform === "darwin" && app.dock) app.dock.bounce("informational");
-		return { ok: true };
-	} catch (err) {
-		console.warn("[notifications] throw:", err);
-		return {
-			ok: false,
-			reason: err instanceof Error ? err.message : String(err)
+		return e.on("show", () => {
+			console.info("[notifications] shown:", i);
+		}), e.on("failed", (e, t) => {
+			console.warn("[notifications] failed:", t);
+		}), e.on("click", () => {
+			y && !y.isDestroyed() && (y.isMinimized() && y.restore(), y.show(), y.focus(), o && y.webContents.send("notification-clicked", {
+				roomId: o,
+				eventId: s
+			}));
+		}), e.show(), process.platform === "darwin" && n.dock && n.dock.bounce("informational"), { ok: !0 };
+	} catch (e) {
+		return console.warn("[notifications] throw:", e), {
+			ok: !1,
+			reason: e instanceof Error ? e.message : String(e)
 		};
 	}
-});
-/**
-* Open SSO in a controlled BrowserWindow and resolve with loginToken
-* when the homeserver redirects back to redirectUrlPrefix.
-*/
-ipcMain.handle("sso-login", async (_event, ssoUrl, redirectUrlPrefix) => {
-	return new Promise((resolve, reject) => {
-		const authWin = new BrowserWindow({
-			width: 560,
-			height: 720,
-			parent: mainWindow ?? void 0,
-			modal: false,
-			show: true,
-			title: "Sign in",
-			backgroundColor: "#0e1621",
-			webPreferences: {
-				nodeIntegration: false,
-				contextIsolation: true,
-				sandbox: true
-			}
-		});
-		let settled = false;
-		const finish = (token, error) => {
-			if (settled) return;
-			settled = true;
-			if (!authWin.isDestroyed()) authWin.close();
-			if (token) resolve(token);
-			else reject(error ?? /* @__PURE__ */ new Error("SSO cancelled"));
-		};
-		const tryCapture = (navUrl) => {
-			if (redirectUrlPrefix && !navUrl.startsWith(redirectUrlPrefix) && !navUrl.includes("loginToken=")) return false;
-			const token = extractLoginToken(navUrl);
-			if (token) {
-				finish(token);
-				return true;
-			}
-			return false;
-		};
-		authWin.webContents.on("will-redirect", (event, url) => {
-			if (tryCapture(url)) event.preventDefault();
-		});
-		authWin.webContents.on("will-navigate", (event, url) => {
-			if (tryCapture(url)) event.preventDefault();
-		});
-		authWin.webContents.on("did-navigate", (_event, url) => {
-			tryCapture(url);
-		});
-		authWin.on("closed", () => {
-			if (!settled) finish(null, /* @__PURE__ */ new Error("SSO window closed"));
-		});
-		authWin.loadURL(ssoUrl).catch((err) => {
-			finish(null, err instanceof Error ? err : new Error(String(err)));
-		});
+}), i.handle("sso-login", async (t, n, r) => new Promise((t, i) => {
+	let a = new e({
+		width: 560,
+		height: 720,
+		parent: y ?? void 0,
+		modal: !1,
+		show: !0,
+		title: "Sign in",
+		backgroundColor: "#0e1621",
+		webPreferences: {
+			nodeIntegration: !1,
+			contextIsolation: !0,
+			sandbox: !0
+		}
+	}), o = !1, s = (e, n) => {
+		o || (o = !0, a.isDestroyed() || a.close(), e ? t(e) : i(n ?? /* @__PURE__ */ Error("SSO cancelled")));
+	}, c = (e) => {
+		if (r && !e.startsWith(r) && !e.includes("loginToken=")) return !1;
+		let t = C(e);
+		return t ? (s(t), !0) : !1;
+	};
+	a.webContents.on("will-redirect", (e, t) => {
+		c(t) && e.preventDefault();
+	}), a.webContents.on("will-navigate", (e, t) => {
+		c(t) && e.preventDefault();
+	}), a.webContents.on("did-navigate", (e, t) => {
+		c(t);
+	}), a.on("closed", () => {
+		o || s(null, /* @__PURE__ */ Error("SSO window closed"));
+	}), a.loadURL(n).catch((e) => {
+		s(null, e instanceof Error ? e : Error(String(e)));
 	});
-});
-app.whenReady().then(() => {
-	createWindow();
-	process.on("uncaughtException", (error) => {
-		console.error("[main uncaughtException]", error);
-		broadcastMainError(error, "exception");
+})), n.whenReady().then(() => {
+	S(), process.on("uncaughtException", (e) => {
+		console.error("[main uncaughtException]", e), x(e, "exception");
+	}), process.on("unhandledRejection", (e) => {
+		console.error("[main unhandledRejection]", e), x(e, "rejection");
 	});
-	process.on("unhandledRejection", (reason) => {
-		console.error("[main unhandledRejection]", reason);
-		broadcastMainError(reason, "rejection");
-	});
-});
-app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") app.quit();
-});
-app.on("activate", () => {
-	if (BrowserWindow.getAllWindows().length === 0) createWindow();
-	else if (mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.show();
-		mainWindow.focus();
-	}
+}), n.on("window-all-closed", () => {
+	process.platform !== "darwin" && n.quit();
+}), n.on("activate", () => {
+	e.getAllWindows().length === 0 ? S() : y && !y.isDestroyed() && (y.show(), y.focus());
 });
 //#endregion
 export {};

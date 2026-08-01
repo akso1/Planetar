@@ -361,7 +361,7 @@ function MediaThumb({
         </span>
       )}
       {kind === 'gif' && (
-        <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase bg-black/55 text-white/90">
+        <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded-sm text-[9px] font-bold uppercase bg-black/55 text-white/90">
           GIF
         </span>
       )}
@@ -589,7 +589,7 @@ export function RoomProfileModal({
         >
           <button
             type="button"
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/55 backdrop-blur-xs"
             aria-label="Закрыть"
             onClick={onClose}
           />

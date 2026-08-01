@@ -398,7 +398,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           >
             <button
               type="button"
-              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/55 backdrop-blur-xs"
               aria-label="Close settings"
               onClick={onClose}
             />
@@ -635,11 +635,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     style={{ background: opt.bg }}
                                   >
                                     <div
-                                      className="h-2.5 w-[70%] rounded-sm ml-auto"
+                                      className="h-2.5 w-[70%] rounded-xs ml-auto"
                                       style={{ background: opt.surface }}
                                     />
                                     <div
-                                      className="h-2.5 w-[55%] rounded-sm"
+                                      className="h-2.5 w-[55%] rounded-xs"
                                       style={{ background: opt.surfaceIn }}
                                     />
                                     <div

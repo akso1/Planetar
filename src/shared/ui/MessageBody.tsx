@@ -261,7 +261,7 @@ function renderNodes(
           <button
             key={key}
             type="button"
-            className="tg-mention inline align-baseline font-medium hover:underline cursor-pointer px-1 py-0.5 rounded transition-colors"
+            className="tg-mention inline align-baseline font-medium hover:underline cursor-pointer px-1 py-0.5 rounded-sm transition-colors"
             style={{
               color: getUserColor(userId),
               backgroundColor: getUserColorAlpha(userId, 0.2),

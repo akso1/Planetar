@@ -4414,7 +4414,7 @@ export function MessageTimeline() {
         <div className="relative flex-1 min-h-0 flex flex-col">
           {isLoadingHistory && (
             <div className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center">
-              <span className="rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/55 backdrop-blur-sm">
+              <span className="rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/55 backdrop-blur-xs">
                 Загрузка истории…
               </span>
             </div>

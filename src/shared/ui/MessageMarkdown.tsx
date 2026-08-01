@@ -19,7 +19,7 @@ type MessageMarkdownProps = {
 }
 
 const MENTION_PILL_BASE =
-  'tg-mention inline align-baseline font-medium hover:underline cursor-pointer px-1 py-0.5 rounded transition-colors'
+  'tg-mention inline align-baseline font-medium hover:underline cursor-pointer px-1 py-0.5 rounded-sm transition-colors'
 
 /**
  * GFM treats a lone "+", "-" or "*" as an empty list item (renders as a bullet).

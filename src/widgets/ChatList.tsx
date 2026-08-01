@@ -375,7 +375,7 @@ function HighlightedSnippet({
         return isHit ? (
           <mark
             key={i}
-            className="bg-yellow-400/35 text-ink rounded px-0.5"
+            className="bg-yellow-400/35 text-ink rounded-sm px-0.5"
           >
             {part}
           </mark>

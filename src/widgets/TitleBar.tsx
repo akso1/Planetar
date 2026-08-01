@@ -3,7 +3,7 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="h-[38px] flex-shrink-0 select-none"
+      className="h-[38px] shrink-0 select-none"
       style={{ WebkitAppRegion: 'drag' }}
       aria-hidden
     />

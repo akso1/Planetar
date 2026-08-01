@@ -299,7 +299,7 @@ export function DeviceVerificationModal({
         >
           <button
             type="button"
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/55 backdrop-blur-xs"
             aria-label="Закрыть"
             onClick={() => void handleClose()}
           />

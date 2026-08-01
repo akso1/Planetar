@@ -108,7 +108,7 @@ export function DecryptHistoryModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-chatSidebar border border-hairline p-6 rounded-2xl shadow-panel backdrop-blur-md w-full max-w-sm">
         <h2 className="text-lg font-bold text-chatText mb-2">Decrypt History</h2>
         <p className="text-sm text-white/45 mb-4">
