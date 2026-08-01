@@ -1149,7 +1149,7 @@ button.tg-sticky-date-pill:focus-visible {
   width: min(280px, 100%);
   max-width: 100%;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .tg-album-grid--1 {

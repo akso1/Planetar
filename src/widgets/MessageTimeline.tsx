@@ -640,7 +640,7 @@ const MediaImage: React.FC<{
                 ? 'w-full h-full object-cover'
                 : isSticker
                   ? 'tg-sticker-img'
-                  : 'rounded-xl my-0.5 hover:opacity-95 transition-opacity object-cover -mx-0.5')
+                  : 'rounded-[14px] hover:opacity-95 transition-opacity object-cover')
             }
             style={
               fill
@@ -687,7 +687,7 @@ const MediaVideo: React.FC<{
     <div ref={ref}>
       <button
         type="button"
-        className="tg-video-thumb relative block p-0 m-0 border-0 bg-transparent cursor-pointer rounded-xl overflow-hidden -mx-0.5 my-0.5 group"
+        className="tg-video-thumb relative block p-0 m-0 border-0 bg-transparent cursor-pointer rounded-[14px] overflow-hidden group"
         style={{ width: size.width, height: size.height, maxWidth: 'min(280px, 100%)' }}
         onClick={() => videoId && openVideo?.(videoId)}
         aria-label="Открыть видео"
