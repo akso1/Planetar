@@ -1,22 +1,26 @@
-import { createRequire as e } from "node:module";
-import { ipcRenderer as t } from "electron";
-//#region \0rolldown/runtime.js
-var n = /* @__PURE__ */ e(import.meta.url);
-window.require = n, window.global = window, window.electronAPI = {
-	openExternal: (e) => t.invoke("open-external", e),
-	ssoLogin: (e, n) => t.invoke("sso-login", e, n),
-	searchGifs: (e) => t.invoke("search-gifs", e),
-	showNotification: (e) => t.invoke("show-notification", e),
-	setDockBadge: (e) => t.invoke("set-dock-badge", e),
-	isWindowFocused: () => t.invoke("is-window-focused"),
-	saveTextFile: (e) => t.invoke("save-text-file", e),
-	onMainError: (e) => {
-		let n = (t, n) => e(n);
-		return t.on("main-error", n), () => t.removeListener("main-error", n);
+import { createRequire } from "node:module";
+import { ipcRenderer } from "electron";
+//#endregion
+//#region electron/preload.ts
+window.require = /* @__PURE__ */ (() => createRequire(import.meta.url))();
+window.global = window;
+window.electronAPI = {
+	openExternal: (url) => ipcRenderer.invoke("open-external", url),
+	ssoLogin: (ssoUrl, redirectUrlPrefix) => ipcRenderer.invoke("sso-login", ssoUrl, redirectUrlPrefix),
+	searchGifs: (query) => ipcRenderer.invoke("search-gifs", query),
+	showNotification: (payload) => ipcRenderer.invoke("show-notification", payload),
+	setDockBadge: (count) => ipcRenderer.invoke("set-dock-badge", count),
+	isWindowFocused: () => ipcRenderer.invoke("is-window-focused"),
+	saveTextFile: (opts) => ipcRenderer.invoke("save-text-file", opts),
+	onMainError: (handler) => {
+		const listener = (_event, payload) => handler(payload);
+		ipcRenderer.on("main-error", listener);
+		return () => ipcRenderer.removeListener("main-error", listener);
 	},
-	onNotificationClicked: (e) => {
-		let n = (t, n) => e(n);
-		return t.on("notification-clicked", n), () => t.removeListener("notification-clicked", n);
+	onNotificationClicked: (handler) => {
+		const listener = (_event, payload) => handler(payload);
+		ipcRenderer.on("notification-clicked", listener);
+		return () => ipcRenderer.removeListener("notification-clicked", listener);
 	}
 };
 //#endregion

@@ -613,7 +613,7 @@ export function ChatList() {
   const rowVirtualizer = useVirtualizer({
     count: tab === 'chats' ? unpinnedMatched.length : 0,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 68,
+    estimateSize: () => 60,
     overscan: 5,
     useFlushSync: false,
   })
@@ -981,13 +981,14 @@ export function ChatList() {
                       return (
                         <div
                           key={virtualItem.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualItem.index}
                           data-search-idx={searchIdx}
                           style={{
                             position: 'absolute',
                             top: 0,
                             left: 0,
                             width: '100%',
-                            height: `${virtualItem.size}px`,
                             transform: `translateY(${virtualItem.start}px)`,
                           }}
                           className={clsx(
