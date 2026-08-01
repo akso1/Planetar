@@ -1410,7 +1410,7 @@ const AlbumBubble = memo(function AlbumBubble({
         })}
       </div>
       {item.caption && (
-        <div className="px-2 pt-1.5 pb-0.5 text-[14px]">
+        <div className="px-0.5 pt-1.5 pb-1 text-[14px]">
           <MessageMarkdown
             text={item.caption}
             members={mentionMembers}
@@ -1488,6 +1488,12 @@ const MessageBubble = memo(function MessageBubble({
   const isStickerEvent = event.getType() === 'm.sticker'
   const isPhoto =
     !event.isDecryptionFailure() && content.msgtype === 'm.image'
+  const isFlushMedia =
+    !isStickerEvent &&
+    !event.isDecryptionFailure() &&
+    (isPhoto ||
+      content.msgtype === 'm.video' ||
+      (content.msgtype === 'm.file' && isVideoEvent(event)))
   const eventId = event.getId() || ''
   const replyParentId = getInReplyToId(event)
   const replyMediaIds = getReplyMediaIds(event)
@@ -1578,7 +1584,7 @@ const MessageBubble = memo(function MessageBubble({
             <MediaImage content={content} imageId={event.getId() || undefined} />
             {typeof (content as any)[ALBUM_CAPTION_KEY] === 'string' &&
               (content as any)[ALBUM_CAPTION_KEY].trim() && (
-                <div className="px-1.5 pt-1">
+                <div className="px-0.5 pt-1">
                   <MessageMarkdown
                     text={(content as any)[ALBUM_CAPTION_KEY]}
                     members={mentionMembers}
@@ -1601,7 +1607,7 @@ const MessageBubble = memo(function MessageBubble({
             <MediaVideo content={content} videoId={event.getId() || undefined} />
             {typeof (content as any)[ALBUM_CAPTION_KEY] === 'string' &&
               (content as any)[ALBUM_CAPTION_KEY].trim() && (
-                <div className="px-1.5 pt-1">
+                <div className="px-0.5 pt-1">
                   <MessageMarkdown
                     text={(content as any)[ALBUM_CAPTION_KEY]}
                     members={mentionMembers}
@@ -1698,8 +1704,8 @@ const MessageBubble = memo(function MessageBubble({
         }}
         onScrollTo={onScrollTo}
         bubbleClassName={clsx(
-          isPhoto && 'overflow-hidden !p-[2px]',
-          isFlash && !isPhoto && !isStickerEvent && 'tg-msg-highlight',
+          isFlushMedia && 'tg-bubble--media overflow-hidden !p-[2px]',
+          isFlash && !isFlushMedia && !isStickerEvent && 'tg-msg-highlight',
           selected && 'tg-msg-bubble-selected',
         )}
       >
@@ -1729,7 +1735,7 @@ const MessageBubble = memo(function MessageBubble({
               )}
             </span>
           </>
-        ) : isPhoto ? (
+        ) : isFlushMedia ? (
           <>
             {messageContent}
             <BubbleTime

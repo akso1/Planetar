@@ -414,6 +414,15 @@ input[type='search']::-webkit-search-decoration {
   border-radius: var(--radius-bubble);
 }
 
+/* Media (photo/video/gif) — even corners, no tail */
+.tg-bubble--media,
+.tg-bubble--media.tg-bubble--in,
+.tg-bubble--media.tg-bubble--out {
+  border-radius: var(--radius-bubble);
+  border-bottom-left-radius: var(--radius-bubble);
+  border-bottom-right-radius: var(--radius-bubble);
+}
+
 .tg-bubble-meta {
   display: inline-flex;
   align-items: center;
