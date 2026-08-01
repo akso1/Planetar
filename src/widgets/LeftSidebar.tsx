@@ -1,0 +1,141 @@
+import { useState, type ReactNode } from 'react'
+import { Send, Users, MessagesSquare, Cog, CheckCheck } from 'lucide-react'
+import { clsx } from 'clsx'
+import {
+  useRoomStore,
+  type RoomFilter,
+  isDirectRoom,
+  isGroupRoom,
+  getRoomUnread,
+} from '@/entities/session/model/room.store'
+import { AppContextMenu } from '@/shared/ui/AppContextMenu'
+import { SettingsModal } from './SettingsModal'
+import { InvitesBell } from './InvitesBell'
+
+const iconStyle = 'w-[18px] h-[18px] tg-nav-icon transition-colors'
+
+export function LeftSidebar() {
+  const rooms = useRoomStore((state) => state.rooms)
+  const roomFilter = useRoomStore((state) => state.roomFilter)
+  const setRoomFilter = useRoomStore((state) => state.actions.setRoomFilter)
+  const markAllRoomsAsRead = useRoomStore(
+    (state) => state.actions.markAllRoomsAsRead,
+  )
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [navMenu, setNavMenu] = useState<{ x: number; y: number } | null>(null)
+  const [readAllBusy, setReadAllBusy] = useState(false)
+
+  const directUnread = rooms
+    .filter(isDirectRoom)
+    .reduce((sum, room) => sum + getRoomUnread(room), 0)
+  const groupsUnread = rooms
+    .filter(isGroupRoom)
+    .reduce((sum, room) => sum + getRoomUnread(room), 0)
+  const totalUnread = rooms.reduce(
+    (sum, room) => sum + getRoomUnread(room),
+    0,
+  )
+
+  const folders: {
+    id: RoomFilter
+    name: string
+    icon: ReactNode
+    count?: number
+  }[] = [
+    {
+      id: 'all',
+      name: 'All Chats',
+      icon: <MessagesSquare className={iconStyle} strokeWidth={1.75} />,
+      count: totalUnread || undefined,
+    },
+    {
+      id: 'direct',
+      name: 'Direct',
+      icon: <Send className={iconStyle} strokeWidth={1.75} />,
+      count: directUnread || undefined,
+    },
+    {
+      id: 'groups',
+      name: 'Groups',
+      icon: <Users className={iconStyle} strokeWidth={1.75} />,
+      count: groupsUnread || undefined,
+    },
+  ]
+
+  const markAllAsRead = () => {
+    if (readAllBusy || totalUnread === 0) return
+    setReadAllBusy(true)
+    void markAllRoomsAsRead().finally(() => setReadAllBusy(false))
+  }
+
+  return (
+    <>
+      <div className="tg-sidebar w-[56px] shrink-0 flex flex-col items-center py-3 border-r">
+        <div className="flex flex-col gap-2">
+          {folders.map((folder) => (
+            <button
+              key={folder.id}
+              type="button"
+              className={clsx(
+                'tg-nav-btn relative group',
+                roomFilter === folder.id && 'tg-nav-btn--active',
+              )}
+              title={folder.name}
+              onClick={() => setRoomFilter(folder.id)}
+              onContextMenu={(e) => {
+                if (folder.id !== 'all') return
+                e.preventDefault()
+                e.stopPropagation()
+                setNavMenu({ x: e.clientX, y: e.clientY })
+              }}
+            >
+              {folder.icon}
+              {folder.count != null && folder.count > 0 && (
+                <span className="tg-nav-badge">
+                  {folder.count > 99 ? '99+' : folder.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-auto flex flex-col gap-2">
+          <InvitesBell />
+          <button
+            type="button"
+            className={clsx(
+              'tg-nav-btn group',
+              settingsOpen && 'tg-nav-btn--active',
+            )}
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Cog className={iconStyle} strokeWidth={1.75} />
+          </button>
+        </div>
+      </div>
+
+      {navMenu && (
+        <AppContextMenu
+          x={navMenu.x}
+          y={navMenu.y}
+          onClose={() => setNavMenu(null)}
+          items={[
+            {
+              id: 'read-all',
+              label: readAllBusy ? 'Читаю…' : 'Прочитать все',
+              icon: <CheckCheck className="w-4 h-4" />,
+              disabled: totalUnread === 0 || readAllBusy,
+              onSelect: markAllAsRead,
+            },
+          ]}
+        />
+      )}
+
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
+    </>
+  )
+}
