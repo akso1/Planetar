@@ -487,8 +487,9 @@ input[type='search']::-webkit-search-decoration {
 
 .tg-read-by {
   display: flex;
-  margin-top: 4px;
-  padding: 0 2px;
+  /* padding not margin — stays inside measured virtual row */
+  margin: 0;
+  padding: 4px 2px 0;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -748,7 +749,9 @@ input[type='search']::-webkit-search-decoration {
 .tg-date-sep {
   display: flex;
   justify-content: center;
-  margin: 14px 0 6px;
+  /* padding (not margin) so the virtual row's measured height includes it */
+  padding: 14px 0 6px;
+  margin: 0;
 }
 
 .tg-date-sep span,
@@ -974,7 +977,8 @@ button.tg-sticky-date-pill:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 12px 4px 10px;
+  padding: 12px 4px 10px;
+  margin: 0;
   user-select: none;
 }
 
@@ -1067,8 +1071,9 @@ button.tg-sticky-date-pill:focus-visible {
 .tg-sender {
   font-size: 13px;
   font-weight: 600;
-  margin: 0 0 2px 2px;
-  padding-left: 2px;
+  /* padding — never margin on timeline content (virtualizer measure) */
+  margin: 0;
+  padding: 0 0 2px 4px;
   /* color set inline via getUserColor(userId) */
   color: var(--accent-hover);
 }
@@ -1176,6 +1181,7 @@ button.tg-sticky-date-pill:focus-visible {
 
 .tg-album-cell {
   position: relative;
+  /* Prefer aspect-ratio from inline style (event.info); fallback box */
   min-height: 100px;
   max-height: 160px;
   background: rgba(0, 0, 0, 0.25);
@@ -1185,6 +1191,8 @@ button.tg-sticky-date-pill:focus-visible {
 .tg-album-grid--1 .tg-album-cell {
   max-height: 280px;
   min-height: 140px;
+  /* Single photo: honor reserved aspect from info when set */
+  height: auto;
 }
 
 .tg-album-cell img {
@@ -1214,6 +1222,54 @@ button.tg-sticky-date-pill:focus-visible {
 
 .tg-msg-actions {
   transition: opacity 0.12s ease;
+  /* Stay above neighbouring virtual rows when they briefly overlap during measure */
+  z-index: 20;
+}
+
+/* Visual gap from the bubble; ::before keeps a hover bridge across it */
+.tg-msg-actions--in {
+  margin-left: 6px;
+}
+
+.tg-msg-actions--in::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  right: 100%;
+  width: 14px;
+}
+
+.tg-msg-actions--out {
+  margin-right: 6px;
+}
+
+.tg-msg-actions--out::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: 100%;
+  width: 14px;
+}
+
+.tg-timeline-row {
+  /* Isolate stacking so hover chrome from one row can't paint "through" another */
+  isolation: isolate;
+  /* Flex FFC: child margins stay inside the measured box (no collapse).
+   * Absolute virtual rows + collapsed margins = phantom gaps / stuck messages. */
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+  /* RULE 2: measured element must never use vertical margin */
+  margin: 0;
+}
+
+/* Native overflow anchoring keeps the viewport stable on prepend/append */
+.tg-timeline-scroll {
+  overflow-anchor: auto;
+  overscroll-behavior-y: contain;
+  scroll-behavior: auto;
 }
 
 .tg-msg-highlight .tg-bubble {
@@ -1929,11 +1985,19 @@ html.theme-light .tg-invite-row:hover {
 
 .tg-pinned-bar {
   border-color: var(--hairline);
+  /* Slot already draws the bottom edge of the chrome above the timeline */
+  border-top: none;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--color-accent) 10%, transparent) 0%,
     transparent 42%
   );
+}
+.tg-pinned-bar-slot {
+  background: color-mix(in srgb, var(--color-sidebar) 92%, transparent);
+  border-color: var(--hairline);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 .tg-pinned-bar:hover {
   background: linear-gradient(

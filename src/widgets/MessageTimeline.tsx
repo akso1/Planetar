@@ -10,6 +10,11 @@ import React, {
   useState,
 } from 'react'
 import {
+  findMsgDomEl,
+  findTimelineRowIndex as findRowIndexInRows,
+  type JumpToEventOptions,
+} from '@/shared/lib/timelineJump'
+import {
   useRoomStore,
 } from '@/entities/session/model/room.store'
 import { useSessionStore } from '@/entities/session/model/session'
@@ -35,6 +40,7 @@ import {
   ChevronDown,
   ChevronUp,
   Forward,
+  Loader2,
   Pencil,
   Reply,
   Search,
@@ -547,15 +553,15 @@ function MediaSkeleton({
   return (
     <div
       className={clsx(
-        'animate-pulse bg-white/10',
-        fill ? 'w-full h-full min-h-[100px]' : 'rounded-xl',
+        'animate-pulse bg-gray-800/20',
+        fill ? 'w-full h-full min-h-[200px] rounded-lg' : 'rounded-xl min-h-[200px]',
       )}
       style={
         fill
           ? undefined
           : {
               width: width ?? 208,
-              height: height ?? 144,
+              height: height ?? 200,
             }
       }
       aria-hidden
@@ -574,7 +580,7 @@ function mediaDisplaySize(
   } | null,
   maxW = 280,
   maxH = 280,
-  fallback = { width: 208, height: 144 },
+  fallback = { width: 208, height: 200 },
 ): { width: number; height: number } {
   const info = content?.info
   const w = info?.thumbnail_info?.w || info?.w
@@ -587,6 +593,23 @@ function mediaDisplaySize(
     }
   }
   return fallback
+}
+
+/** CSS aspect-ratio string from m.image / m.video info (for reserved layout). */
+function mediaAspectRatio(
+  content: {
+    info?: {
+      w?: number
+      h?: number
+      thumbnail_info?: { w?: number; h?: number }
+    }
+  } | null,
+): string | undefined {
+  const info = content?.info
+  const w = info?.thumbnail_info?.w || info?.w
+  const h = info?.thumbnail_info?.h || info?.h
+  if (w && h && w > 0 && h > 0) return `${w} / ${h}`
+  return undefined
 }
 
 const MediaImage: React.FC<{
@@ -611,49 +634,86 @@ const MediaImage: React.FC<{
   const size = isSticker
     ? mediaDisplaySize(content, 140, 140, { width: 120, height: 120 })
     : mediaDisplaySize(content)
+  const aspect = mediaAspectRatio(content) ?? `${size.width} / ${size.height}`
+  const hasKnownDims = (() => {
+    const info = content?.info
+    const w = info?.thumbnail_info?.w || info?.w
+    const h = info?.thumbnail_info?.h || info?.h
+    return !!(w && h && w > 0 && h > 0)
+  })()
+
+  if (fill) {
+    return (
+      <div
+        ref={ref}
+        className="w-full h-full min-h-[200px] rounded-lg bg-gray-800/20"
+      >
+        {error ? (
+          <div className="text-[13px] text-white/50 p-2">
+            Не удалось загрузить {isSticker ? 'стикер' : 'фото'}
+          </div>
+        ) : !objectUrl ? (
+          <MediaSkeleton fill width={size.width} height={size.height} />
+        ) : (
+          <button
+            type="button"
+            className="block p-0 m-0 border-0 bg-transparent cursor-pointer w-full h-full"
+            onClick={() => imageId && openImage?.(imageId)}
+            aria-label={isSticker ? 'Стикер' : 'Открыть изображение'}
+          >
+            <img
+              src={objectUrl}
+              alt={content.body || (isSticker ? 'Sticker' : 'Image')}
+              className={className || 'w-full h-full object-cover'}
+              draggable={false}
+            />
+          </button>
+        )}
+      </div>
+    )
+  }
 
   return (
-    <div ref={ref} className={fill ? 'w-full h-full' : undefined}>
+    <div
+      ref={ref}
+      className={clsx(
+        'relative overflow-hidden bg-gray-800/20',
+        !isSticker && 'min-h-[200px] rounded-[14px]',
+      )}
+      style={{
+        width: size.width,
+        maxWidth: isSticker ? 140 : 'min(280px, 100%)',
+        aspectRatio: aspect,
+        // Pin pixel height when Matrix info has dims so load can't reflow.
+        height: !isSticker && hasKnownDims ? size.height : undefined,
+        minHeight: isSticker ? undefined : Math.max(200, size.height),
+        borderRadius: isSticker ? undefined : 14,
+      }}
+    >
       {error ? (
-        <div className="text-[13px] text-white/50 p-2">
+        <div className="absolute inset-0 flex items-center text-[13px] text-white/50 p-2">
           Не удалось загрузить {isSticker ? 'стикер' : 'фото'}
         </div>
       ) : !objectUrl ? (
-        <MediaSkeleton fill={fill} width={size.width} height={size.height} />
+        <MediaSkeleton fill width={size.width} height={size.height} />
       ) : (
         <button
           type="button"
-          className={clsx(
-            'block p-0 m-0 border-0 bg-transparent cursor-pointer',
-            fill && 'w-full h-full',
-          )}
+          className="absolute inset-0 block p-0 m-0 border-0 bg-transparent cursor-pointer"
           onClick={() => imageId && openImage?.(imageId)}
           aria-label={isSticker ? 'Стикер' : 'Открыть изображение'}
         >
           <img
             src={objectUrl}
             alt={content.body || (isSticker ? 'Sticker' : 'Image')}
-            width={fill ? undefined : size.width}
-            height={fill ? undefined : size.height}
             className={
               className ||
-              (fill
-                ? 'w-full h-full object-cover'
-                : isSticker
-                  ? 'tg-sticker-img'
-                  : 'rounded-[14px] hover:opacity-95 transition-opacity object-cover')
+              (isSticker
+                ? 'tg-sticker-img w-full h-full'
+                : 'w-full h-full hover:opacity-95 transition-opacity object-cover')
             }
-            style={
-              fill
-                ? undefined
-                : {
-                    width: size.width,
-                    height: size.height,
-                    maxWidth: isSticker ? 140 : 'min(280px, 100%)',
-                    maxHeight: isSticker ? 140 : undefined,
-                    objectFit: isSticker ? 'contain' : 'cover',
-                  }
-            }
+            style={{ objectFit: isSticker ? 'contain' : 'cover' }}
+            draggable={false}
           />
         </button>
       )}
@@ -679,7 +739,8 @@ const MediaVideo: React.FC<{
     near && hasThumb,
     'preview',
   )
-  const size = mediaDisplaySize(content, 280, 200, { width: 240, height: 160 })
+  const size = mediaDisplaySize(content, 280, 200, { width: 240, height: 200 })
+  const aspect = mediaAspectRatio(content) ?? `${size.width} / ${size.height}`
   const durationLabel = formatDurationMs(content.info?.duration)
   const bytes =
     typeof content.info?.size === 'number' ? content.info.size : undefined
@@ -688,8 +749,13 @@ const MediaVideo: React.FC<{
     <div ref={ref}>
       <button
         type="button"
-        className="tg-video-thumb relative block p-0 m-0 border-0 bg-transparent cursor-pointer rounded-[14px] overflow-hidden group"
-        style={{ width: size.width, height: size.height, maxWidth: 'min(280px, 100%)' }}
+        className="tg-video-thumb relative block p-0 m-0 border-0 bg-transparent cursor-pointer rounded-[14px] overflow-hidden group min-h-[200px] bg-gray-800/20"
+        style={{
+          width: size.width,
+          maxWidth: 'min(280px, 100%)',
+          aspectRatio: aspect,
+          minHeight: Math.max(200, size.height),
+        }}
         onClick={() => videoId && openVideo?.(videoId)}
         aria-label="Открыть видео"
       >
@@ -697,11 +763,11 @@ const MediaVideo: React.FC<{
           <img
             src={thumbUrl}
             alt={content.body || 'Video'}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
             draggable={false}
           />
         ) : (
-          <div className="tg-video-thumb-fallback w-full h-full flex flex-col items-center justify-center gap-1.5 px-3">
+          <div className="tg-video-thumb-fallback absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3">
             <span className="text-[28px] leading-none opacity-80">🎬</span>
             <span className="text-[12px] text-white/70 truncate max-w-full">
               {content.body || 'Видео'}
@@ -1002,10 +1068,8 @@ const MessageHoverActions: React.FC<{
     <div
       ref={wrapRef}
       className={clsx(
-        'tg-msg-actions absolute top-0 z-10 flex items-center gap-0.5 rounded-full bg-[#1a2733]/95 border border-white/10 shadow-lg px-0.5 py-0.5',
-        'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
-        pickerOpen && '!opacity-100 !pointer-events-auto',
-        isOwn ? 'right-full -translate-x-1.5' : 'left-full translate-x-1.5',
+        'tg-msg-actions absolute top-0 z-20 flex items-center gap-0.5 rounded-full bg-[#1a2733]/95 border border-white/10 shadow-lg px-0.5 py-0.5',
+        isOwn ? 'tg-msg-actions--out right-full' : 'tg-msg-actions--in left-full',
       )}
     >
       <button
@@ -1060,7 +1124,7 @@ const ReactionBar: React.FC<{
 }> = ({ reactions, onToggle }) => {
   if (!reactions.length) return null
   return (
-    <div className="tg-reaction-bar flex flex-wrap gap-1 mt-1">
+    <div className="tg-reaction-bar flex flex-wrap gap-1 pt-1">
       {reactions.map((r) => (
         <button
           key={r.key}
@@ -1169,6 +1233,9 @@ type BubbleChromeProps = {
   searchHit?: boolean
   /** No bubble background — for stickers */
   bare?: boolean
+  /** Only one message in the virtual list may show hover chrome at a time */
+  showHoverActions?: boolean
+  onHoverActionsChange?: (eventId: string | null) => void
   onReply: () => void
   onContextMenu?: (e: React.MouseEvent) => void
   onScrollTo: (
@@ -1200,6 +1267,8 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
   replyQuoteText,
   searchHit,
   bare,
+  showHoverActions = false,
+  onHoverActionsChange,
   onReply,
   onContextMenu,
   onScrollTo,
@@ -1244,9 +1313,12 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
     <div
       id={`msg-${eventId}`}
       className={clsx(
-        'tg-msg group relative flex w-full min-w-0 scroll-mt-8',
+        // No `group` on the full-width row — virtualized rows are 100% wide, so
+        // hovering empty space left of own bubbles would light up the wrong actions.
+        'tg-msg relative flex w-full min-w-0 scroll-mt-8',
         isOwn ? 'justify-end pl-12' : 'justify-start pr-12',
-        afterDaySep ? 'mt-0' : isContinuation ? 'mt-1.5' : 'mt-2.5',
+        // Top padding only — bottom spacing lives on .tg-timeline-row
+        afterDaySep ? 'pt-0' : isContinuation ? 'pt-1' : 'pt-1.5',
         searchHit && 'tg-msg-search-hit',
       )}
       onContextMenu={onContextMenu}
@@ -1266,7 +1338,11 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
             {senderName}
           </div>
         )}
-        <div className="relative w-fit max-w-full min-w-0">
+        <div
+          className="relative w-fit max-w-full min-w-0"
+          onMouseEnter={() => onHoverActionsChange?.(eventId)}
+          onMouseLeave={() => onHoverActionsChange?.(null)}
+        >
           <div
             className={clsx(
               bare
@@ -1292,11 +1368,13 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
             )}
             {children}
           </div>
-          <MessageHoverActions
-            isOwn={isOwn}
-            onReply={onReply}
-            onPickReaction={handleReact}
-          />
+          {showHoverActions && (
+            <MessageHoverActions
+              isOwn={isOwn}
+              onReply={onReply}
+              onPickReaction={handleReact}
+            />
+          )}
         </div>
         <ReactionBar reactions={reactions} onToggle={handleReact} />
         {showReadStrip && (
@@ -1331,6 +1409,8 @@ const AlbumBubble = memo(function AlbumBubble({
   onScrollTo,
   mentionMembers,
   onUserClick,
+  showHoverActions = false,
+  onHoverActionsChange,
 }: {
   item: Extract<TimelineItem, { kind: 'album' }>
   isOwn: boolean
@@ -1357,6 +1437,8 @@ const AlbumBubble = memo(function AlbumBubble({
   ) => void
   mentionMembers: { userId: string; displayName: string }[]
   onUserClick: (userId: string) => void
+  showHoverActions?: boolean
+  onHoverActionsChange?: (eventId: string | null) => void
 }) {
   const root = item.imageEvents[0]
   const eventId = root.getId() || ''
@@ -1407,6 +1489,8 @@ const AlbumBubble = memo(function AlbumBubble({
       replyParentId={replyParentId}
       replyMediaIds={replyMediaIds}
       searchHit={searchHit}
+      showHoverActions={showHoverActions}
+      onHoverActionsChange={onHoverActionsChange}
       onReply={handleAlbumReply}
       onContextMenu={(e) => onContextMenu(e, item.events)}
       onScrollTo={onScrollTo}
@@ -1431,6 +1515,11 @@ const AlbumBubble = memo(function AlbumBubble({
                 isSelected && 'tg-album-cell--selected',
                 isFlash && 'tg-album-cell--flash',
               )}
+              style={{
+                aspectRatio:
+                  mediaAspectRatio(ev.getContent() as { info?: { w?: number; h?: number } }) ||
+                  undefined,
+              }}
             >
               <MediaImage
                 content={ev.getContent()}
@@ -1517,6 +1606,8 @@ const MessageBubble = memo(function MessageBubble({
   onReply,
   onContextMenu,
   onScrollTo,
+  showHoverActions = false,
+  onHoverActionsChange,
 }: {
   event: MatrixEvent
   isOwn: boolean
@@ -1543,6 +1634,8 @@ const MessageBubble = memo(function MessageBubble({
     behavior?: ScrollBehavior,
     highlightText?: string,
   ) => void
+  showHoverActions?: boolean
+  onHoverActionsChange?: (eventId: string | null) => void
 }) {
   const content = event.getContent() as Record<string, unknown>
   const senderName = getSenderName(event)
@@ -1641,7 +1734,10 @@ const MessageBubble = memo(function MessageBubble({
         messageContent = (
           <div
             id={eventId ? `msg-media-${eventId}` : undefined}
-            className={clsx(isFlash && 'tg-album-cell--flash rounded-xl overflow-hidden')}
+            className={clsx(
+              'min-h-[200px] rounded-lg bg-gray-800/20',
+              isFlash && 'tg-album-cell--flash rounded-xl overflow-hidden',
+            )}
           >
             <MediaImage content={content} imageId={event.getId() || undefined} />
             {typeof (content as any)[ALBUM_CAPTION_KEY] === 'string' &&
@@ -1754,6 +1850,8 @@ const MessageBubble = memo(function MessageBubble({
         replyQuoteText={replyQuoteText}
         searchHit={searchHit}
         bare={isStickerEvent}
+        showHoverActions={showHoverActions}
+        onHoverActionsChange={onHoverActionsChange}
         onReply={() => onReply([event])}
         onContextMenu={(e) => {
           if (selecting && eventId && onToggleSelect) {
@@ -1881,8 +1979,41 @@ export function MessageTimeline() {
   } | null>(null)
   const [showJumpDown, setShowJumpDown] = useState(false)
   const [jumpBadge, setJumpBadge] = useState(0)
+  /** Only one message may mount hover reply/react chrome (virtual rows overlap) */
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
+  const hoverClearTimer = useRef<number | null>(null)
+
+  const clearHoveredEventId = useCallback(() => {
+    if (hoverClearTimer.current != null) {
+      window.clearTimeout(hoverClearTimer.current)
+      hoverClearTimer.current = null
+    }
+    setHoveredEventId(null)
+  }, [])
+
+  const setHoveredEventIdDelayed = useCallback((eventId: string | null) => {
+    if (hoverClearTimer.current != null) {
+      window.clearTimeout(hoverClearTimer.current)
+      hoverClearTimer.current = null
+    }
+    if (eventId) {
+      setHoveredEventId(eventId)
+      return
+    }
+    // Grace period so the cursor can cross into the side actions
+    hoverClearTimer.current = window.setTimeout(() => {
+      hoverClearTimer.current = null
+      setHoveredEventId(null)
+    }, 280)
+  }, [])
   const [unreadBeforeId, setUnreadBeforeId] = useState<string | null>(null)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  /** Forward (newer) pagination in flight — drives auto-continue near bottom. */
+  const [isLoadingNewer, setIsLoadingNewer] = useState(false)
+  /** Hide timeline until first measure + scroll settle (anti-flicker on room open). */
+  const [isReady, setIsReady] = useState(false)
+  /** First live/scrollback hydrate finished for this room (empty room ≠ forever spinner). */
+  const [initialHydrated, setInitialHydrated] = useState(false)
   const [stickyDateLabel, setStickyDateLabel] = useState<string | null>(null)
   const [stickyDateTs, setStickyDateTs] = useState<number | null>(null)
   const [stickyDateVisible, setStickyDateVisible] = useState(false)
@@ -1902,36 +2033,26 @@ export function MessageTimeline() {
   const prevMsgCount = useRef(0)
   const prevLastMsgId = useRef<string | null>(null)
   const prevFirstMsgId = useRef<string | null>(null)
-  /** Captured right before older history is prepended — restores viewport */
-  const historyAnchorRef = useRef<{
-    scrollTop: number
-    scrollHeight: number
-    key: string
-    offsetFromTop: number
-  } | null>(null)
-  const scrollMetricsSnapshot = useRef<{
-    count: number
-    firstId: string | null
-    lastId: string | null
-    scrollTop: number
-    scrollHeight: number
-  }>({
-    count: 0,
-    firstId: null,
-    lastId: null,
-    scrollTop: 0,
-    scrollHeight: 0,
-  })
   const loadingHistory = useRef(false)
+  const loadingNewer = useRef(false)
   const historyExhausted = useRef(false)
+  /** Throttle upward pagination — at most once per 500ms. */
+  const lastLoadOlderAtRef = useRef(0)
+  /** Throttle downward (forward) pagination — at most once per 500ms. */
+  const lastLoadNewerAtRef = useRef(0)
+  /** Prepend anti-loop: first id + scrollHeight when stuck near top. */
+  const prevFirstIdRef = useRef<string | undefined>(undefined)
+  const prevScrollHeightRef = useRef(0)
   /** Skip jump-down badge when older messages are prepended */
   const ignoreHistoryGrowth = useRef(false)
   /** True while the user is actively scrolling the timeline */
   const isTimelineScrolling = useRef(false)
+  const pendingReceiptTick = useRef(false)
   const scrollIdleTimer = useRef<number | null>(null)
   const decryptRefreshTimer = useRef<number | null>(null)
   /** Load history only after scroll settles (avoids mid-inertia jump) */
   const pendingLoadOlder = useRef(false)
+  const pendingLoadNewer = useRef(false)
   const timelineRowsRef = useRef<TimelineRow[]>([])
   /** Cancels in-flight programmatic scroll-to-message animations */
   const scrollAnimRef = useRef<number | null>(null)
@@ -1971,7 +2092,6 @@ export function MessageTimeline() {
   const closeRoomProfile = useRoomStore(
     (state) => state.actions.closeRoomProfile,
   )
-  const activeRoom = rooms.find((r) => r.roomId === activeRoomId)
 
   /** Only apply timeline events if this room is still the active one. */
   const commitTimelineMessages = useCallback(
@@ -2015,6 +2135,13 @@ export function MessageTimeline() {
   const client = useSessionStore((state) => state.client)
   const myUserId = client?.getUserId() ?? null
   const verifiedTick = useVerificationUiStore((s) => s.verifiedTick)
+
+  // Prefer SDK room map — the sidebar `rooms` array can rebuild on sync without
+  // the active room briefly disappearing (that used to unmount the timeline).
+  const activeRoom =
+    (activeRoomId && client?.getRoom(activeRoomId)) ||
+    rooms.find((r) => r.roomId === activeRoomId) ||
+    undefined
 
   const personalPinsHydrate = usePersonalPinnedStore((s) => s.hydrate)
   const personalPinsByUser = usePersonalPinnedStore((s) => s.byUser)
@@ -2116,10 +2243,33 @@ export function MessageTimeline() {
   const highlightSet = useMemo(() => new Set(highlightMediaIds), [highlightMediaIds])
   const chatSearchQ = chatSearchQuery.trim().toLowerCase()
 
+  /** Local search corpus: live timeline ∪ current view (historical window). */
+  const searchCorpus = useMemo(() => {
+    const byId = new Map<string, MatrixEvent>()
+    const add = (events: MatrixEvent[]) => {
+      for (const event of events) {
+        const id = event.getId()
+        if (id) byId.set(id, event)
+      }
+    }
+    if (activeRoom) {
+      add(
+        activeRoom
+          .getLiveTimeline()
+          .getEvents()
+          .filter(isTimelineMessageEvent),
+      )
+    }
+    add(messages)
+    return Array.from(byId.values()).sort((a, b) => a.getTs() - b.getTs())
+    // reactionTick: decrypt / window reshuffle may mutate event bodies in place
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoom, messages, reactionTick])
+
   const searchHitCount = useMemo(() => {
     if (!chatSearchQ) return 0
-    return messages.filter((e) => eventMatchesSearch(e, chatSearchQ)).length
-  }, [messages, chatSearchQ])
+    return searchCorpus.filter((e) => eventMatchesSearch(e, chatSearchQ)).length
+  }, [searchCorpus, chatSearchQ])
 
   const searchResults = useMemo(() => {
     if (!chatSearchQ) return []
@@ -2130,8 +2280,8 @@ export function MessageTimeline() {
       snippet: string
       ts: number
     }[] = []
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const event = messages[i]
+    for (let i = searchCorpus.length - 1; i >= 0; i--) {
+      const event = searchCorpus[i]
       if (!eventMatchesSearch(event, chatSearchQ)) continue
       const eventId = event.getId()
       if (!eventId) continue
@@ -2150,7 +2300,7 @@ export function MessageTimeline() {
       if (out.length >= 40) break
     }
     return out
-  }, [messages, chatSearchQ])
+  }, [searchCorpus, chatSearchQ])
 
   // Keep cursor valid when the result list changes
   useEffect(() => {
@@ -2163,32 +2313,22 @@ export function MessageTimeline() {
     )
   }, [chatSearchQ, searchResults])
 
-  const scrollToBottom = useCallback((smooth = false) => {
+  const scrollToBottom = useCallback((_smooth = false) => {
     const el = timelineRef.current
     if (!el) return
-    if (smooth) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-    } else {
-      el.scrollTop = el.scrollHeight
-    }
+    el.scrollTop = el.scrollHeight
   }, [])
 
-  /** Reliably pin after layout (images / flex can change height). */
+  /** Pin to bottom after a layout-affecting commit (send / jump to latest). */
   const scrollToBottomAfterLayout = useCallback(() => {
     scrollToBottom(false)
-    requestAnimationFrame(() => {
-      scrollToBottom(false)
-      requestAnimationFrame(() => {
-        scrollToBottom(false)
-      })
-    })
   }, [scrollToBottom])
 
   const scrollRowIntoView = useCallback(
-    (eventId: string, align: ScrollLogicalPosition = 'center') => {
+    (eventId: string, align: 'start' | 'center' | 'end' = 'center') => {
       const node =
-        document.getElementById(`msg-${eventId}`) ||
-        document.getElementById(`msg-media-${eventId}`) ||
+        document.getElementById(`message-${eventId}`) ||
+        findMsgDomEl(eventId) ||
         document.getElementById('tg-unread-anchor')
       if (!node) return false
       node.scrollIntoView({ block: align, behavior: 'auto' })
@@ -2196,6 +2336,10 @@ export function MessageTimeline() {
     },
     [],
   )
+
+  const revealTimeline = useCallback(() => {
+    setIsReady(true)
+  }, [])
 
   /**
    * Place the viewport for a freshly opened room:
@@ -2212,6 +2356,7 @@ export function MessageTimeline() {
         stickToBottom.current = false
         didInitialPosition.current = true
         setShowJumpDown(true)
+        revealTimeline()
         return
       }
       // Event not in DOM yet — wait for more history / decrypt
@@ -2219,12 +2364,11 @@ export function MessageTimeline() {
     }
 
     if (openIntent.current === 'unread' && unreadBeforeId) {
-      const unreadNode = document.getElementById('tg-unread-anchor')
-      if (unreadNode) {
+      if (scrollRowIntoView(unreadBeforeId, 'center')) {
         stickToBottom.current = false
-        unreadNode.scrollIntoView({ block: 'center', behavior: 'auto' })
         didInitialPosition.current = true
         setShowJumpDown(true)
+        revealTimeline()
         return
       }
       const inTimeline = messages.some((e) => e.getId() === unreadBeforeId)
@@ -2238,9 +2382,8 @@ export function MessageTimeline() {
       }
     }
 
-    // Default: bottom
+    // Default: bottom — native scrollHeight effect reveals after first paint.
     stickToBottom.current = true
-    scrollToBottomAfterLayout()
     didInitialPosition.current = true
     setShowJumpDown(false)
     setJumpBadge(0)
@@ -2248,10 +2391,22 @@ export function MessageTimeline() {
     messages,
     pendingScrollEventId,
     unreadBeforeId,
-    scrollToBottomAfterLayout,
     clearPendingUnreadEvent,
     scrollRowIntoView,
+    revealTimeline,
   ])
+
+  // Hard-reset readiness when the room changes (also covered by
+  // key={activeRoomId} remount, but keep explicit for safety).
+  useLayoutEffect(() => {
+    setIsReady(false)
+    setInitialHydrated(false)
+    didInitialPosition.current = false
+    lastLoadOlderAtRef.current = 0
+    lastLoadNewerAtRef.current = 0
+    prevFirstIdRef.current = undefined
+    prevScrollHeightRef.current = 0
+  }, [activeRoomId])
 
   // Reset composer / open intent when switching rooms
   useEffect(() => {
@@ -2272,6 +2427,8 @@ export function MessageTimeline() {
     setShowJumpDown(false)
     setJumpBadge(0)
     setMessages([])
+    setIsReady(false)
+    setInitialHydrated(false)
     if (scrollAnimRef.current != null) {
       cancelAnimationFrame(scrollAnimRef.current)
       scrollAnimRef.current = null
@@ -2282,14 +2439,17 @@ export function MessageTimeline() {
     prevMsgCount.current = 0
     prevLastMsgId.current = null
     prevFirstMsgId.current = null
-    scrollMetricsSnapshot.current = {
-      count: 0,
-      firstId: null,
-      lastId: null,
-      scrollTop: 0,
-      scrollHeight: 0,
-    }
-    historyAnchorRef.current = null
+    loadingHistory.current = false
+    loadingNewer.current = false
+    historyExhausted.current = false
+    lastLoadOlderAtRef.current = 0
+    lastLoadNewerAtRef.current = 0
+    prevFirstIdRef.current = undefined
+    prevScrollHeightRef.current = 0
+    pendingLoadOlder.current = false
+    pendingLoadNewer.current = false
+    setIsLoadingHistory(false)
+    setIsLoadingNewer(false)
     if (scrollIdleTimer.current != null) {
       window.clearTimeout(scrollIdleTimer.current)
       scrollIdleTimer.current = null
@@ -2297,6 +2457,7 @@ export function MessageTimeline() {
     isTimelineScrolling.current = false
     setJumpBadge(0)
     setShowJumpDown(false)
+    clearHoveredEventId()
 
     if (pendingScrollEventId) {
       openIntent.current = 'event'
@@ -2400,6 +2561,7 @@ export function MessageTimeline() {
 
     historyExhausted.current = false
     loadingHistory.current = false
+    loadingNewer.current = false
     setIsLoadingHistory(false)
 
     const refreshFromLive = () => {
@@ -2441,6 +2603,15 @@ export function MessageTimeline() {
         type === EventType.Reaction ||
         event.isDecryptionFailure()
       ) {
+        // Don't clobber an in-flight history anchor restore
+        if (
+          loadingHistory.current ||
+          loadingNewer.current
+        ) {
+          if (timelineWindowRef.current) return
+          // Live timeline: still ignore while anchoring upward load
+          if (loadingHistory.current) return
+        }
         refresh()
       }
     }
@@ -2449,6 +2620,12 @@ export function MessageTimeline() {
 
     const onReceipt = () => {
       if (!stillHere()) return
+      // Receipts only change the read-strip under bubbles — defer during scroll
+      // so we don't remount virtual rows mid-gesture.
+      if (isTimelineScrolling.current) {
+        pendingReceiptTick.current = true
+        return
+      }
       setReceiptTick((t) => t + 1)
     }
     room.on(RoomEvent.Receipt, onReceipt)
@@ -2473,6 +2650,15 @@ export function MessageTimeline() {
         decryptRefreshTimer.current = null
         if (!stillHere()) return
         setReactionTick((t) => t + 1)
+        // Full timeline recommit while anchoring / loading history teleports
+        // the viewport — in-place mutation + reactionTick is enough to paint.
+        if (
+          loadingHistory.current ||
+          loadingNewer.current ||
+          isTimelineScrolling.current
+        ) {
+          return
+        }
         refresh()
       }, delay)
     }
@@ -2495,9 +2681,11 @@ export function MessageTimeline() {
     }
 
     // Sync only keeps a short live window — warm older history on open.
+    // Keep this modest so opening a busy room still paginates on scroll-up
+    // (full warm of hundreds at once fights the first scroll).
     ignoreHistoryGrowth.current = true
     void client
-      .scrollback(room, 80)
+      .scrollback(room, 40)
       .then(() => {
         if (!stillHere()) return
         if (!timelineWindowRef.current) refreshFromLive()
@@ -2506,6 +2694,9 @@ export function MessageTimeline() {
         if (!stillHere()) return
         console.warn('Initial scrollback failed', err)
         ignoreHistoryGrowth.current = false
+      })
+      .finally(() => {
+        if (stillHere()) setInitialHydrated(true)
       })
 
     return () => {
@@ -2591,22 +2782,11 @@ export function MessageTimeline() {
   }, [activeRoomId, setActivePinIndexSynced])
 
   const findPinDomEl = useCallback((eventId: string) => {
-    return (
-      document.getElementById(`msg-${eventId}`) ||
-      document.getElementById(`msg-media-${eventId}`)
-    )
+    return findMsgDomEl(eventId)
   }, [])
 
   const findTimelineRowIndex = useCallback((eventId: string) => {
-    return timelineRowsRef.current.findIndex((row) => {
-      if (row.item.kind === 'album') {
-        return (
-          row.item.events.some((e) => e.getId() === eventId) ||
-          row.item.imageEvents.some((e) => e.getId() === eventId)
-        )
-      }
-      return row.item.event.getId() === eventId
-    })
+    return findRowIndexInRows(timelineRowsRef.current, eventId)
   }, [])
 
   const getPinRect = useCallback((eventId: string) => {
@@ -2644,11 +2824,29 @@ export function MessageTimeline() {
     // Bounds of the loaded window — pins outside still get past/below via ts
     let windowOldestTs = 0
     let windowNewestTs = 0
-    for (const row of timelineRowsRef.current) {
+    const rows = timelineRowsRef.current
+    for (const row of rows) {
       const ts = row.firstEvent.getTs() || 0
       if (!ts) continue
       if (!windowOldestTs || ts < windowOldestTs) windowOldestTs = ts
       if (ts > windowNewestTs) windowNewestTs = ts
+    }
+
+    // Native list: all rows are mounted — derive visible range from DOM rects.
+    const viewTop = scroller.getBoundingClientRect().top
+    let firstVisibleRow = -1
+    let lastVisibleRow = -1
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i].firstEvent.getId()
+      if (!id) continue
+      const el =
+        document.getElementById(`message-${id}`) || findMsgDomEl(id)
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (r.bottom > viewTop && r.top < viewBottom) {
+        if (firstVisibleRow < 0) firstVisibleRow = i
+        lastVisibleRow = i
+      }
     }
 
     const syncedIndex = computePinnedBarIndex({
@@ -2661,8 +2859,8 @@ export function MessageTimeline() {
         inferMissingPinStatus({
           pin,
           rowIndex: findTimelineRowIndex(pin.eventId),
-          firstVisibleRow: -1,
-          lastVisibleRow: -1,
+          firstVisibleRow,
+          lastVisibleRow,
           windowOldestTs,
           windowNewestTs,
         }),
@@ -2689,7 +2887,9 @@ export function MessageTimeline() {
     const line = scroller.getBoundingClientRect().top + 10
     const seps = scroller.querySelectorAll<HTMLElement>('[data-tg-date-sep]')
     if (seps.length === 0) {
-      if (!dateJumpOpenRef.current) setStickyDateVisible(false)
+      if (!dateJumpOpenRef.current && !isTimelineScrolling.current) {
+        setStickyDateVisible(false)
+      }
       return
     }
 
@@ -2732,6 +2932,9 @@ export function MessageTimeline() {
       return
     }
 
+    // Real chip is sitting in the sticky slot — never show a floating twin
+    // (including mid-scroll; the old "keep visible while scrolling" path
+    // stacked two identical day pills and read as a hitch).
     if (inlineAtTop) {
       setStickyDateVisible(false)
       return
@@ -2785,45 +2988,27 @@ export function MessageTimeline() {
       const tRect = (target as HTMLElement).getBoundingClientRect()
       // Put the start of the day near the top under the sticky slot
       const delta = tRect.top - (sRect.top + 12)
-      scroller.scrollTop += delta
+      scroller.scrollTop = Math.max(0, scroller.scrollTop + delta)
       pinLastScrollTopRef.current = scroller.scrollTop
       return true
     },
     [],
   )
 
-  const captureHistoryAnchor = useCallback(() => {
-    const el = timelineRef.current
-    if (!el) return
-    historyAnchorRef.current = {
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-      key: '',
-      offsetFromTop: 0,
-    }
-  }, [])
-
-  const restoreHistoryAnchor = useCallback(() => {
-    const el = timelineRef.current
-    const anchor = historyAnchorRef.current
-    if (!el || !anchor) return false
-    const delta = el.scrollHeight - anchor.scrollHeight
-    if (delta !== 0) {
-      el.scrollTop = Math.max(0, anchor.scrollTop + delta)
-    }
-    historyAnchorRef.current = {
-      ...anchor,
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-    }
-    return true
-  }, [])
-
   const loadOlderMessages = useCallback(async () => {
     if (!client || !activeRoom) return
-    if (loadingHistory.current || historyExhausted.current) return
-    // Never prepend while the wheel/trackpad is still moving
-    if (isTimelineScrolling.current) {
+    // Instant lock — never overlap / never fire when history is exhausted
+    if (loadingHistory.current || historyExhausted.current) {
+      if (!historyExhausted.current) pendingLoadOlder.current = true
+      return
+    }
+    if (pinJumpLockRef.current) {
+      pendingLoadOlder.current = true
+      return
+    }
+    // Hard rate limit: at most one older-page request per 500ms
+    const now = Date.now()
+    if (now - lastLoadOlderAtRef.current < 500) {
       pendingLoadOlder.current = true
       return
     }
@@ -2834,8 +3019,16 @@ export function MessageTimeline() {
       epoch === timelineEpochRef.current &&
       activeRoomIdRef.current === roomId
 
-    captureHistoryAnchor()
+    const beforeMsgLen = messages.length
+    const win = timelineWindowRef.current
+    if (win && !win.canPaginate(EventTimeline.BACKWARDS)) {
+      historyExhausted.current = true
+      pendingLoadOlder.current = false
+      return
+    }
 
+    lastLoadOlderAtRef.current = now
+    // Lock BEFORE any await so onScroll cannot re-enter mid-flight.
     loadingHistory.current = true
     ignoreHistoryGrowth.current = true
     // Defer loading indicator so we don't re-render mid-scroll gesture
@@ -2844,83 +3037,206 @@ export function MessageTimeline() {
     }, 180)
 
     try {
-      const win = timelineWindowRef.current
       if (win) {
-        try {
-          if (!win.canPaginate(EventTimeline.BACKWARDS)) {
-            if (stillHere()) {
-              historyExhausted.current = true
-              historyAnchorRef.current = null
-            }
-            return
-          }
-          const before = win.getEvents().length
-          const got = await win.paginate(
-            EventTimeline.BACKWARDS,
-            50,
-            true,
-            5,
-          )
-          if (!stillHere()) return
-          const afterEvents = win.getEvents()
-          const after = afterEvents.length
-          commitTimelineMessages(
-            roomId,
-            afterEvents.filter(isTimelineMessageEvent),
-            epoch,
-          )
-          setReactionTick((t) => t + 1)
-
-          // Timeline joins can log "Already have timeline" and return no
-          // growth once — don't permanently kill scrollback on that.
-          if (after > before) return
+        const before = win.getEvents().length
+        const got = await win.paginate(
+          EventTimeline.BACKWARDS,
+          50,
+          true,
+          5,
+        )
+        if (!stillHere()) return
+        const afterEvents = win.getEvents()
+        const after = afterEvents.length
+        const filtered = afterEvents.filter(isTimelineMessageEvent)
+        if (filtered.length <= beforeMsgLen && after <= before) {
           if (!got && !win.canPaginate(EventTimeline.BACKWARDS)) {
             historyExhausted.current = true
-            historyAnchorRef.current = null
           }
           return
-        } catch (err) {
-          console.warn('Failed to paginate timeline window', err)
-          // Transient SDK join errors — keep trying on next scroll
-          return
         }
+        commitTimelineMessages(roomId, filtered, epoch)
+        setReactionTick((t) => t + 1)
+
+        if (after > before) return
+        if (!got && !win.canPaginate(EventTimeline.BACKWARDS)) {
+          historyExhausted.current = true
+        }
+        return
       }
 
       const beforeCount = activeRoom.getLiveTimeline().getEvents().length
       await client.scrollback(activeRoom, 50)
       if (!stillHere()) return
       const afterCount = activeRoom.getLiveTimeline().getEvents().length
-      if (afterCount <= beforeCount) {
+      const filtered = activeRoom
+        .getLiveTimeline()
+        .getEvents()
+        .filter(isTimelineMessageEvent)
+      if (afterCount <= beforeCount && filtered.length <= beforeMsgLen) {
         historyExhausted.current = true
-        historyAnchorRef.current = null
+        return
       }
-
-      commitTimelineMessages(
-        roomId,
-        activeRoom
-          .getLiveTimeline()
-          .getEvents()
-          .filter(isTimelineMessageEvent),
-        epoch,
-      )
+      commitTimelineMessages(roomId, filtered, epoch)
       setReactionTick((t) => t + 1)
     } catch (err) {
       console.warn('Failed to load older messages', err)
-      if (stillHere()) {
-        ignoreHistoryGrowth.current = false
-        historyAnchorRef.current = null
-      }
+      if (stillHere()) ignoreHistoryGrowth.current = false
     } finally {
       window.clearTimeout(loadingUi)
-      if (stillHere()) {
+      if (stillHere()) setIsLoadingHistory(false)
+      else setIsLoadingHistory(false)
+
+      // Keep the lock until after React has committed + layout effects
+      // (prepend heightDiff) have run — otherwise onScroll re-enters at scrollTop~0.
+      requestAnimationFrame(() => {
         loadingHistory.current = false
-        setIsLoadingHistory(false)
-      } else {
-        // Don't leave the next room blocked on our in-flight flag
-        loadingHistory.current = false
+
+        if (
+          stillHere() &&
+          !historyExhausted.current &&
+          !pinJumpLockRef.current &&
+          (pendingLoadOlder.current ||
+            (timelineRef.current != null &&
+              timelineRef.current.scrollTop < 30))
+        ) {
+          pendingLoadOlder.current = false
+          const wait = Math.max(
+            0,
+            500 - (Date.now() - lastLoadOlderAtRef.current),
+          )
+          window.setTimeout(() => {
+            void loadOlderMessages()
+          }, wait)
+        }
+      })
+    }
+  }, [client, activeRoom, commitTimelineMessages, messages.length])
+
+  /** Extend a historical TimelineWindow toward live / exit to live when caught up. */
+  const loadNewerMessages = useCallback(async () => {
+    if (!client || !activeRoom) return
+    const win = timelineWindowRef.current
+    if (!win) return
+    // Hard in-flight guard — never overlap forward pagination
+    if (loadingNewer.current || loadingHistory.current) {
+      pendingLoadNewer.current = true
+      return
+    }
+    if (pinJumpLockRef.current) {
+      pendingLoadNewer.current = true
+      return
+    }
+    // Hard rate limit: at most one newer-page request per 500ms
+    const now = Date.now()
+    if (now - lastLoadNewerAtRef.current < 500) {
+      pendingLoadNewer.current = true
+      return
+    }
+
+    const roomId = activeRoom.roomId
+    const epoch = timelineEpochRef.current
+    const stillHere = () =>
+      epoch === timelineEpochRef.current &&
+      activeRoomIdRef.current === roomId
+
+    const beforeMsgLen = messages.length
+
+    lastLoadNewerAtRef.current = now
+    loadingNewer.current = true
+    setIsLoadingNewer(true)
+    ignoreHistoryGrowth.current = true
+    let progressed = false
+
+    try {
+      if (!win.canPaginate(EventTimeline.FORWARDS)) {
+        // Caught up with live. Hand off only near the end so a mid-window
+        // viewport isn't replaced by a shorter live scrollback.
+        const el = timelineRef.current
+        const nearLiveEnd =
+          el != null &&
+          el.scrollHeight - el.scrollTop - el.clientHeight < 900
+        if (nearLiveEnd) {
+          timelineWindowRef.current = null
+          historyExhausted.current = false
+          commitTimelineMessages(
+            roomId,
+            activeRoom
+              .getLiveTimeline()
+              .getEvents()
+              .filter(isTimelineMessageEvent),
+            epoch,
+          )
+          setReactionTick((t) => t + 1)
+          progressed = true
+        }
+        return
+      }
+
+      const before = win.getEvents().length
+      const got = await win.paginate(EventTimeline.FORWARDS, 80, true, 5)
+      if (!stillHere() || timelineWindowRef.current !== win) return
+
+      const afterEvents = win.getEvents()
+      const filtered = afterEvents.filter(isTimelineMessageEvent)
+      if (filtered.length <= beforeMsgLen && afterEvents.length <= before) {
+        if (!got && !win.canPaginate(EventTimeline.FORWARDS)) {
+          const el = timelineRef.current
+          const nearLiveEnd =
+            el != null &&
+            el.scrollHeight - el.scrollTop - el.clientHeight < 900
+          if (nearLiveEnd) {
+            timelineWindowRef.current = null
+            historyExhausted.current = false
+            commitTimelineMessages(
+              roomId,
+              activeRoom
+                .getLiveTimeline()
+                .getEvents()
+                .filter(isTimelineMessageEvent),
+              epoch,
+            )
+            setReactionTick((t) => t + 1)
+            progressed = true
+          }
+        }
+        return
+      }
+      commitTimelineMessages(roomId, filtered, epoch)
+      setReactionTick((t) => t + 1)
+      progressed = true
+    } catch (err) {
+      console.warn('Failed to paginate timeline window forwards', err)
+    } finally {
+      loadingNewer.current = false
+      ignoreHistoryGrowth.current = false
+      if (stillHere()) setIsLoadingNewer(false)
+      else setIsLoadingNewer(false)
+
+      // Keep walking forward while near the bottom edge — respect 500ms throttle.
+      if (
+        progressed &&
+        stillHere() &&
+        timelineWindowRef.current &&
+        !pinJumpLockRef.current &&
+        (pendingLoadNewer.current ||
+          (timelineRef.current != null &&
+            timelineRef.current.scrollHeight -
+              timelineRef.current.scrollTop -
+              timelineRef.current.clientHeight <
+              50))
+      ) {
+        pendingLoadNewer.current = false
+        const wait = Math.max(
+          0,
+          500 - (Date.now() - lastLoadNewerAtRef.current),
+        )
+        window.setTimeout(() => {
+          void loadNewerMessages()
+        }, wait)
       }
     }
-  }, [client, activeRoom, captureHistoryAnchor, commitTimelineMessages])
+  }, [client, activeRoom, commitTimelineMessages, messages.length])
 
   const timelineItems = useMemo(() => {
     const scoped = activeRoomId
@@ -2990,49 +3306,69 @@ export function MessageTimeline() {
     schedulePinnedBarSync()
   }, [pinnedMessages, timelineRows.length, schedulePinnedBarSync])
 
-  // After messages render, place viewport (bottom / unread / event)
   useLayoutEffect(() => {
     applyInitialPosition()
   }, [applyInitialPosition, timelineRows.length])
 
-  // Keep scroll anchored when older events are prepended
+  // Native pin-to-bottom on room open / first hydrate (no virtualizer).
   useLayoutEffect(() => {
-    const el = timelineRef.current
-    const firstId = messages[0]?.getId() ?? null
-    const lastId = messages[messages.length - 1]?.getId() ?? null
-    const prev = scrollMetricsSnapshot.current
+    if (isReady) return
+    if (messages.length === 0) return
+    if (openIntent.current !== 'bottom') return
+    if (!didInitialPosition.current) return
 
-    if (el && didInitialPosition.current && prev.count > 0) {
-      const prepended =
-        messages.length > prev.count &&
-        !!lastId &&
-        lastId === prev.lastId &&
-        firstId !== prev.firstId
+    requestAnimationFrame(() => {
+      const el = timelineRef.current
+      if (!el || openIntent.current !== 'bottom') return
+      el.scrollTop = el.scrollHeight
+      stickToBottom.current = true
+      setIsReady(true)
+    })
+  }, [activeRoomId, messages.length, isReady])
 
-      if (prepended && !stickToBottom.current) {
-        if (!historyAnchorRef.current) {
-          historyAnchorRef.current = {
-            scrollTop: prev.scrollTop,
-            scrollHeight: prev.scrollHeight,
-            key: '',
-            offsetFromTop: 0,
-          }
+  // After prepend: let overflow-anchor hold the viewport; if still in the
+  // near-top trigger zone (< 50), push scrollTop by the added block height.
+  useLayoutEffect(() => {
+    const scrollEl = timelineRef.current
+    if (!scrollEl) return
+
+    const currentFirstId = messages[0]?.getId()
+    const currentScrollHeight = scrollEl.scrollHeight
+
+    if (
+      prevFirstIdRef.current &&
+      currentFirstId &&
+      currentFirstId !== prevFirstIdRef.current
+    ) {
+      if (scrollEl.scrollTop < 50) {
+        const heightDiff = currentScrollHeight - prevScrollHeightRef.current
+        if (heightDiff > 0) {
+          scrollEl.scrollTop += heightDiff
         }
-        restoreHistoryAnchor()
-        historyAnchorRef.current = null
       }
     }
 
-    scrollMetricsSnapshot.current = {
-      count: messages.length,
-      firstId,
-      lastId,
-      scrollTop: el?.scrollTop ?? 0,
-      scrollHeight: el?.scrollHeight ?? 0,
-    }
-  }, [messages, restoreHistoryAnchor])
+    prevFirstIdRef.current = currentFirstId
+    prevScrollHeightRef.current = currentScrollHeight
+  }, [messages])
 
-  // Follow new messages only when pinned to bottom (after initial position)
+  // After newer pagination settles, keep walking if still glued to the bottom
+  // edge (avoids needing a manual flick to load the next page).
+  useEffect(() => {
+    const scrollEl = timelineRef.current
+    if (!scrollEl || isLoadingNewer) return
+    if (!timelineWindowRef.current) return
+    if (pinJumpLockRef.current) return
+    if (loadingNewer.current || loadingHistory.current) return
+
+    const isAtBottom =
+      scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 50
+    if (isAtBottom) {
+      void loadNewerMessages()
+    }
+  }, [messages.length, isLoadingNewer, loadNewerMessages])
+
+  // Jump-down badge + stick-to-bottom backup on append (not prepend).
   useEffect(() => {
     const prev = prevMsgCount.current
     const next = messages.length
@@ -3063,7 +3399,6 @@ export function MessageTimeline() {
     if (ignoreHistoryGrowth.current || prepended) {
       ignoreHistoryGrowth.current = false
       if (stickToBottom.current) {
-        scrollToBottomAfterLayout()
         setJumpBadge(0)
         setShowJumpDown(false)
       }
@@ -3076,7 +3411,11 @@ export function MessageTimeline() {
     }
 
     if (stickToBottom.current) {
-      scrollToBottomAfterLayout()
+      // Backup when stickToBottom disagrees briefly with virtualizer isAtEnd
+      // (measure lag). Append-only — never force on prepend/reaction churn.
+      if (appendedNew) {
+        scrollToBottomAfterLayout()
+      }
       setJumpBadge(0)
       setShowJumpDown(false)
       return
@@ -3475,151 +3814,76 @@ export function MessageTimeline() {
     handleReply(events)
   }, [activeRoom, selectedMediaIds, handleReply])
 
-  const scrollToEvent = useCallback(
+  /** Apply the pulse / quote highlight to an already-rendered event or media group. */
+  const applyEventHighlight = useCallback(
     (
       eventId: string,
-      mediaIds?: string[],
-      highlightMs = 1600,
-      _behavior: ScrollBehavior = 'smooth',
+      mediaIds: string[] | undefined,
+      highlightMs: number,
       highlightText?: string,
-    ) => {
-      stickToBottom.current = false
-      setShowJumpDown(true)
+    ): boolean => {
       const ids = mediaIds?.length ? mediaIds : [eventId]
       if (highlightTimer.current) window.clearTimeout(highlightTimer.current)
 
-      const finishHighlight = () => {
-        const mediaEls = ids
-          .map((id) => document.getElementById(`msg-media-${id}`))
-          .filter((el): el is HTMLElement => !!el)
+      const mediaEls = ids
+        .map((id) => document.getElementById(`msg-media-${id}`))
+        .filter((el): el is HTMLElement => !!el)
 
-        const albumGrid = mediaEls[0]?.closest('.tg-album-grid')
-        const albumCellCount = albumGrid
-          ? albumGrid.querySelectorAll('[id^="msg-media-"]').length
-          : 0
+      const albumGrid = mediaEls[0]?.closest('.tg-album-grid')
+      const albumCellCount = albumGrid
+        ? albumGrid.querySelectorAll('[id^="msg-media-"]').length
+        : 0
 
-        const isPartialAlbum =
-          !!albumGrid &&
-          mediaEls.length > 0 &&
-          mediaEls.length < albumCellCount
+      const isPartialAlbum =
+        !!albumGrid && mediaEls.length > 0 && mediaEls.length < albumCellCount
 
-        const msgRoot =
-          (mediaEls[0]?.closest('.tg-msg') as HTMLElement | null) ||
-          document.getElementById(`msg-${eventId}`)
+      const msgRoot =
+        (mediaEls[0]?.closest('.tg-msg') as HTMLElement | null) ||
+        document.getElementById(`msg-${eventId}`)
 
-        if (!msgRoot && mediaEls.length === 0) return false
+      if (!msgRoot && mediaEls.length === 0) return false
 
-        document
-          .querySelectorAll('.tg-msg-highlight')
-          .forEach((n) => n.classList.remove('tg-msg-highlight'))
+      document
+        .querySelectorAll('.tg-msg-highlight')
+        .forEach((n) => n.classList.remove('tg-msg-highlight'))
 
-        if (isPartialAlbum) {
-          setHighlightMediaIds([])
-          requestAnimationFrame(() => {
-            setHighlightMediaIds(ids)
-          })
-        } else if (msgRoot) {
-          setHighlightMediaIds([])
-          void msgRoot.offsetWidth
-          if (highlightText?.trim()) {
-            const targetId = eventId
-            highlightQuoteInMessageRetry(
-              () =>
-                (document.getElementById(`msg-${targetId}`) as HTMLElement | null) ||
-                (document
-                  .getElementById(`msg-media-${targetId}`)
-                  ?.closest('.tg-msg') as HTMLElement | null),
-              highlightText,
-              Math.max(highlightMs, 2200),
-            )
-          } else {
-            clearQuoteTextHighlights(document)
-            msgRoot.classList.add('tg-msg-highlight')
-            window.setTimeout(
-              () => msgRoot.classList.remove('tg-msg-highlight'),
-              highlightMs,
-            )
-          }
-        }
-
-        highlightTimer.current = window.setTimeout(() => {
-          setHighlightMediaIds([])
-          highlightTimer.current = null
-        }, highlightMs)
-
-        return true
-      }
-
-      if (scrollAnimRef.current != null) {
-        cancelAnimationFrame(scrollAnimRef.current)
-        scrollAnimRef.current = null
-      }
-      scrollAnimGen.current += 1
-
-      const findTargetEl = (): HTMLElement | null =>
-        document.getElementById(`msg-${eventId}`) ||
-        ids
-          .map((id) => document.getElementById(`msg-media-${id}`))
-          .find((n): n is HTMLElement => !!n) ||
-        null
-
-      /** Nested overflow: scrollIntoView is unreliable — scroll the timeline scroller. */
-      const scrollScrollerTo = (raw: HTMLElement) => {
-        const scroller = timelineRef.current
-        const target =
-          (raw.closest('.tg-msg') as HTMLElement | null) || raw
-        if (!scroller) {
-          target.scrollIntoView({ block: 'center', behavior: 'auto' })
-          return
-        }
-        const sRect = scroller.getBoundingClientRect()
-        const tRect = target.getBoundingClientRect()
-        const delta =
-          tRect.top + tRect.height / 2 - (sRect.top + sRect.height / 2)
-        pinIgnoreScrollHoldUntilRef.current = Date.now() + 280
-        scroller.scrollTop += delta
-        pinLastScrollTopRef.current = scroller.scrollTop
-      }
-
-      const tryNow = (): boolean => {
-        const target = findTargetEl()
-        if (!target) return false
-        scrollScrollerTo(target)
-        window.setTimeout(finishHighlight, 40)
-        return true
-      }
-
-      if (tryNow()) return true
-
-      // Already in the loaded timeline — wait a frame for layout
-      if (findTimelineRowIndex(eventId) >= 0) {
+      if (isPartialAlbum) {
+        setHighlightMediaIds([])
         requestAnimationFrame(() => {
-          if (tryNow()) return
-          window.setTimeout(() => {
-            void tryNow()
-          }, 60)
+          setHighlightMediaIds(ids)
         })
-        return false
-      }
-
-      // Not in the current window — load history around the event
-      const roomId = activeRoomIdRef.current
-      if (roomId) {
-        pendingReplyHighlightRef.current = {
-          eventId,
-          mediaIds: ids,
-          highlightMs,
-          highlightText,
+      } else if (msgRoot) {
+        setHighlightMediaIds([])
+        void msgRoot.offsetWidth
+        if (highlightText?.trim()) {
+          const targetId = eventId
+          highlightQuoteInMessageRetry(
+            () =>
+              (document.getElementById(`msg-${targetId}`) as HTMLElement | null) ||
+              (document
+                .getElementById(`msg-media-${targetId}`)
+                ?.closest('.tg-msg') as HTMLElement | null),
+            highlightText,
+            Math.max(highlightMs, 2200),
+          )
+        } else {
+          clearQuoteTextHighlights()
+          msgRoot.classList.add('tg-msg-highlight')
+          window.setTimeout(
+            () => msgRoot.classList.remove('tg-msg-highlight'),
+            highlightMs,
+          )
         }
-        useRoomStore.getState().actions.openRoomAtEvent(roomId, eventId)
-        return false
       }
 
-      window.setTimeout(finishHighlight, 50)
-      window.setTimeout(finishHighlight, 180)
-      return false
+      highlightTimer.current = window.setTimeout(() => {
+        setHighlightMediaIds([])
+        highlightTimer.current = null
+      }, highlightMs)
+
+      return true
     },
-    [findTimelineRowIndex],
+    [],
   )
 
   const waitForPinDom = useCallback(
@@ -3627,53 +3891,17 @@ export function MessageTimeline() {
       const deadline = Date.now() + maxMs
       while (Date.now() < deadline) {
         if (gen !== pinJumpGenRef.current) return false
-        if (findPinDomEl(eventId) || findTimelineRowIndex(eventId) >= 0) {
-          // One frame for layout after React commit
-          await new Promise<void>((r) => requestAnimationFrame(() => r()))
-          return !!findPinDomEl(eventId)
+        // Row data existing is enough to consider the event "rendered" —
+        // with virtualization the DOM node itself may not mount until the
+        // caller scrolls the virtualizer to that row's index.
+        if (findTimelineRowIndex(eventId) >= 0 || findPinDomEl(eventId)) {
+          return true
         }
         await new Promise<void>((r) => window.setTimeout(r, 32))
       }
-      return !!findPinDomEl(eventId)
+      return findTimelineRowIndex(eventId) >= 0 || !!findPinDomEl(eventId)
     },
     [findPinDomEl, findTimelineRowIndex],
-  )
-
-  /** Instant scroll inside the timeline scroller (scrollIntoView is flaky in nested overflow). */
-  const scrollTimelineToPin = useCallback(
-    (eventId: string) => {
-      const scroller = timelineRef.current
-      const raw =
-        document.getElementById(`msg-${eventId}`) ||
-        document.getElementById(`msg-media-${eventId}`)
-      if (!scroller || !raw) return false
-
-      const target =
-        (raw.closest('.tg-msg') as HTMLElement | null) || (raw as HTMLElement)
-      const sRect = scroller.getBoundingClientRect()
-      const tRect = target.getBoundingClientRect()
-      const delta =
-        tRect.top + tRect.height / 2 - (sRect.top + sRect.height / 2)
-      // Don't let residual scroll events from this jump clear the "next pin" hold
-      pinIgnoreScrollHoldUntilRef.current = Date.now() + 280
-      scroller.scrollTop += delta
-      pinLastScrollTopRef.current = scroller.scrollTop
-      pinScrollDirRef.current = 'none'
-
-      stickToBottom.current = false
-      document
-        .querySelectorAll('.tg-msg-highlight')
-        .forEach((n) => n.classList.remove('tg-msg-highlight'))
-      const root =
-        (target.classList.contains('tg-msg')
-          ? target
-          : (target.closest('.tg-msg') as HTMLElement | null)) || target
-      void root.offsetWidth
-      root.classList.add('tg-msg-highlight')
-      window.setTimeout(() => root.classList.remove('tg-msg-highlight'), 1600)
-      return true
-    },
-    [],
   )
 
   /** Load a historical event fast — TimelineWindow, not N× scrollback. */
@@ -3726,14 +3954,14 @@ export function MessageTimeline() {
         const win = new TimelineWindow(
           client,
           room.getUnfilteredTimelineSet(),
-          { windowLimit: 300 },
+          { windowLimit: 500 },
         )
         await win.load(eventId, 80)
         if (gen !== pinJumpGenRef.current) return false
         if (activeRoomIdRef.current !== activeRoomId) return false
         await Promise.all([
-          win.paginate(EventTimeline.BACKWARDS, 30, true, 2),
-          win.paginate(EventTimeline.FORWARDS, 30, true, 2),
+          win.paginate(EventTimeline.BACKWARDS, 40, true, 3),
+          win.paginate(EventTimeline.FORWARDS, 60, true, 4),
         ])
         if (gen !== pinJumpGenRef.current) return false
         if (activeRoomIdRef.current !== activeRoomId) return false
@@ -3760,6 +3988,98 @@ export function MessageTimeline() {
       waitForPinDom,
     ],
   )
+
+  /**
+   * Core teleport: caller already owns `gen` (bumped via `pinJumpGenRef`).
+   * Ensures the event is loaded, scrolls the virtualizer to its row, then
+   * applies the highlight once the row has mounted.
+   */
+  const runJumpToEvent = useCallback(
+    async (
+      eventId: string,
+      gen: number,
+      opts: JumpToEventOptions = {},
+    ): Promise<boolean> => {
+      pendingLoadNewer.current = false
+      pendingLoadOlder.current = false
+
+      const ready = await ensureEventRendered(eventId, gen)
+      if (!ready || gen !== pinJumpGenRef.current) return false
+
+      pinIgnoreScrollHoldUntilRef.current = Date.now() + 480
+
+      const scrollToTarget = () => {
+        const element =
+          document.getElementById(`message-${eventId}`) ||
+          findMsgDomEl(eventId)
+        if (!element) return false
+        const block =
+          opts.align === 'start'
+            ? 'start'
+            : opts.align === 'end'
+              ? 'end'
+              : 'center'
+        element.scrollIntoView({ block, behavior: 'auto' })
+        return true
+      }
+
+      if (!scrollToTarget()) {
+        // Context may have just landed — wait 1-2 frames for React commit.
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        if (gen !== pinJumpGenRef.current) return false
+        if (!scrollToTarget()) {
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          if (gen !== pinJumpGenRef.current) return false
+          scrollToTarget()
+        }
+      } else {
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        if (gen !== pinJumpGenRef.current) return false
+        // Re-assert after layout (images / decrypt)
+        scrollToTarget()
+      }
+
+      return applyEventHighlight(
+        eventId,
+        opts.mediaIds,
+        opts.highlightMs ?? 1600,
+        opts.highlightText,
+      )
+    },
+    [applyEventHighlight, ensureEventRendered],
+  )
+
+  /**
+   * Unified teleport used by every "jump to message" caller — replies,
+   * search results, pinned bar, date jump, deep links. Signature matches
+   * the legacy `onScrollTo` prop passed down to MessageBubble / AlbumBubble.
+   */
+  const jumpToEvent = useCallback(
+    (
+      eventId: string,
+      mediaIds?: string[],
+      highlightMs = 1600,
+      _behavior: ScrollBehavior = 'auto',
+      highlightText?: string,
+    ): void => {
+      if (scrollAnimRef.current != null) {
+        cancelAnimationFrame(scrollAnimRef.current)
+        scrollAnimRef.current = null
+      }
+      pinJumpGenRef.current += 1
+      scrollAnimGen.current += 1
+      const gen = pinJumpGenRef.current
+
+      stickToBottom.current = false
+      setShowJumpDown(true)
+
+      void runJumpToEvent(eventId, gen, { mediaIds, highlightMs, highlightText })
+    },
+    [runJumpToEvent],
+  )
+
+  /** Legacy name kept for the many existing call sites — same function. */
+  const scrollToEvent = jumpToEvent
 
   const jumpToDay = useCallback(
     async (dayStartMs: number) => {
@@ -3791,20 +4111,20 @@ export function MessageTimeline() {
 
         if (!eventId || gen !== pinJumpGenRef.current) return
 
-        const ready = await ensureEventRendered(eventId, gen)
-        if (!ready || gen !== pinJumpGenRef.current) return
-
-        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        // Prefer the virtualizer — it aligns the target row (and its date
+        // separator, when present) to the top even before that separator
+        // node exists in the DOM. Manual DOM-offset scroll is a fallback
+        // for the rare case the row never resolves.
+        const jumped = await runJumpToEvent(eventId, gen, { align: 'start' })
         if (gen !== pinJumpGenRef.current) return
 
-        let ok = scrollToDayStart(dayStartMs, eventId)
-        if (!ok) {
-          await new Promise<void>((r) => window.setTimeout(r, 40))
-          if (gen !== pinJumpGenRef.current) return
-          ok = scrollToDayStart(dayStartMs, eventId)
-        }
-        if (!ok) {
-          scrollToEvent(eventId, undefined, 1200, 'auto')
+        if (!jumped) {
+          let ok = scrollToDayStart(dayStartMs, eventId)
+          if (!ok) {
+            await new Promise<void>((r) => window.setTimeout(r, 40))
+            if (gen !== pinJumpGenRef.current) return
+            ok = scrollToDayStart(dayStartMs, eventId)
+          }
         }
 
         setDateJumpOpen(false)
@@ -3818,10 +4138,9 @@ export function MessageTimeline() {
     [
       activeRoomId,
       client,
-      ensureEventRendered,
       messages,
+      runJumpToEvent,
       scrollToDayStart,
-      scrollToEvent,
       updateStickyDateFromScroll,
     ],
   )
@@ -3845,37 +4164,14 @@ export function MessageTimeline() {
     }
 
     try {
-      const inDom = !!findPinDomEl(target.eventId)
-      const ready = inDom
-        ? true
-        : await ensureEventRendered(target.eventId, gen)
-      if (gen !== pinJumpGenRef.current) return
-
-      if (!ready) return
-
-      // Prefer manual scroller offset — reliable inside overflow containers
-      let scrolled = scrollTimelineToPin(target.eventId)
-      if (!scrolled) {
-        await new Promise<void>((r) => window.setTimeout(r, 40))
-        if (gen !== pinJumpGenRef.current) return
-        scrolled = scrollTimelineToPin(target.eventId)
-      }
-      if (!scrolled) {
-        scrollToEvent(target.eventId, undefined, 1600, 'auto')
-      }
+      pinScrollDirRef.current = 'none'
+      await runJumpToEvent(target.eventId, gen, { highlightMs: 1600 })
     } finally {
       if (gen === pinJumpGenRef.current) {
         pinJumpLockRef.current = false
       }
     }
-  }, [
-    activeRoomId,
-    ensureEventRendered,
-    findPinDomEl,
-    scrollTimelineToPin,
-    scrollToEvent,
-    setActivePinIndexSynced,
-  ])
+  }, [activeRoomId, runJumpToEvent, setActivePinIndexSynced])
 
   const jumpToSearchIndex = useCallback(
     (index: number) => {
@@ -3919,15 +4215,7 @@ export function MessageTimeline() {
     if (!room) return
 
     const findRowIndex = (eventId: string) =>
-      timelineRowsRef.current.findIndex((row) => {
-        if (row.item.kind === 'album') {
-          return (
-            row.item.events.some((e) => e.getId() === eventId) ||
-            row.item.imageEvents.some((e) => e.getId() === eventId)
-          )
-        }
-        return row.item.event.getId() === eventId
-      })
+      findRowIndexInRows(timelineRowsRef.current, eventId)
 
     const finishJump = () => {
       didInitialPosition.current = true
@@ -3997,13 +4285,13 @@ export function MessageTimeline() {
           const win = new TimelineWindow(
             client,
             room.getUnfilteredTimelineSet(),
-            { windowLimit: 300 },
+            { windowLimit: 500 },
           )
           await win.load(targetId, 100)
           if (cancelled || activeRoomIdRef.current !== room.roomId) return
           await win.paginate(EventTimeline.BACKWARDS, 50, true, 3)
           if (cancelled || activeRoomIdRef.current !== room.roomId) return
-          await win.paginate(EventTimeline.FORWARDS, 50, true, 3)
+          await win.paginate(EventTimeline.FORWARDS, 80, true, 4)
           if (cancelled || activeRoomIdRef.current !== room.roomId) return
 
           const windowEvents = win.getEvents().filter(isTimelineMessageEvent)
@@ -4074,6 +4362,10 @@ export function MessageTimeline() {
 
     const top = el.scrollTop
     const prevTop = pinLastScrollTopRef.current
+    // Ignore trackpad jitter — only dismiss hover on a real scroll
+    if (Math.abs(top - prevTop) > 14) {
+      clearHoveredEventId()
+    }
     if (top > prevTop + 2) pinScrollDirRef.current = 'down'
     else if (top < prevTop - 2) pinScrollDirRef.current = 'up'
     pinLastScrollTopRef.current = top
@@ -4095,13 +4387,47 @@ export function MessageTimeline() {
     scrollIdleTimer.current = window.setTimeout(() => {
       scrollIdleTimer.current = null
       isTimelineScrolling.current = false
+      // Resolve sticky visibility now that chips are stable.
+      updateStickyDateFromScroll()
+      if (pendingReceiptTick.current) {
+        pendingReceiptTick.current = false
+        setReceiptTick((t) => t + 1)
+      }
 
-      const needOlder =
-        pendingLoadOlder.current ||
-        (timelineRef.current != null && timelineRef.current.scrollTop < 220)
-      pendingLoadOlder.current = false
-      if (needOlder) void loadOlderMessages()
-    }, 180)
+      const scroller = timelineRef.current
+      const nearTop = scroller != null && scroller.scrollTop < 30
+      const needOlder = pendingLoadOlder.current || nearTop
+      if (needOlder) {
+        if (loadingHistory.current || historyExhausted.current) {
+          // Keep the ask alive until the in-flight request finishes
+          if (!historyExhausted.current) pendingLoadOlder.current = true
+        } else {
+          pendingLoadOlder.current = false
+          void loadOlderMessages()
+        }
+      } else {
+        pendingLoadOlder.current = false
+      }
+
+      const needNewer =
+        pendingLoadNewer.current ||
+        (timelineWindowRef.current != null &&
+          !pinJumpLockRef.current &&
+          Date.now() >= pinIgnoreScrollHoldUntilRef.current &&
+          scroller != null &&
+          scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <
+            900)
+      if (needNewer) {
+        if (loadingNewer.current || loadingHistory.current) {
+          pendingLoadNewer.current = true
+        } else {
+          pendingLoadNewer.current = false
+          void loadNewerMessages()
+        }
+      } else {
+        pendingLoadNewer.current = false
+      }
+    }, 200)
 
     schedulePinnedBarSync()
     updateStickyDateFromScroll()
@@ -4112,29 +4438,61 @@ export function MessageTimeline() {
       setShowJumpDown(true)
       // Window reshuffles are not unread messages
       setJumpBadge(0)
-      if (el.scrollTop < 220) pendingLoadOlder.current = true
+      if (
+        el.scrollTop < 30 &&
+        !historyExhausted.current
+      ) {
+        pendingLoadOlder.current = true
+        if (!loadingHistory.current && !pinJumpLockRef.current) {
+          pendingLoadOlder.current = false
+          void loadOlderMessages()
+        }
+      }
+      const distBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      // Prefetch early so a long flick down never runs out of rows.
+      if (
+        distBottom < 900 &&
+        !pinJumpLockRef.current &&
+        Date.now() >= pinIgnoreScrollHoldUntilRef.current
+      ) {
+        pendingLoadNewer.current = true
+        if (!loadingNewer.current && !loadingHistory.current) {
+          pendingLoadNewer.current = false
+          void loadNewerMessages()
+        }
+      }
       return
     }
 
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight
     const atBottom = dist < 100
     stickToBottom.current = atBottom
-    setShowJumpDown(dist > 180)
+    // Hysteresis so the jump button doesn't flicker at the threshold.
+    setShowJumpDown((prev) => {
+      if (prev) return dist > 120
+      return dist > 220
+    })
     if (atBottom) {
       setJumpBadge(0)
       setUnreadBeforeId(null)
       clearPendingUnreadEvent()
       if (activeRoomId) void markRoomAsRead(activeRoomId)
-      historyAnchorRef.current = null
     }
-    if (el.scrollTop < 220) {
+    // Prefetch older history while still scrolling — don't wait for idle.
+    if (el.scrollTop < 30 && !historyExhausted.current) {
       pendingLoadOlder.current = true
+      if (!loadingHistory.current && !pinJumpLockRef.current) {
+        pendingLoadOlder.current = false
+        void loadOlderMessages()
+      }
     }
   }
 
   const jumpToLatest = () => {
     timelineWindowRef.current = null
     historyExhausted.current = false
+    loadingNewer.current = false
+    pendingLoadNewer.current = false
     openIntent.current = 'bottom'
     stickToBottom.current = true
     didInitialPosition.current = true
@@ -4151,8 +4509,11 @@ export function MessageTimeline() {
           .filter(isTimelineMessageEvent),
       )
     }
+    // Rows update on next paint — scroll after layout commits live length
     scrollToBottomAfterLayout()
-    scrollToBottom(true)
+    requestAnimationFrame(() => {
+      scrollToBottom(false)
+    })
     if (activeRoomId) void markRoomAsRead(activeRoomId)
   }
 
@@ -4210,7 +4571,7 @@ export function MessageTimeline() {
     [client, myUserId],
   )
 
-  if (!activeRoom || !client) {
+  if (!activeRoomId || !client) {
     return (
       <div className="flex-1 flex items-center justify-center tg-chat-bg">
         <p className="text-white/40 text-[15px]">Выберите чат, чтобы начать переписку</p>
@@ -4218,7 +4579,24 @@ export function MessageTimeline() {
     )
   }
 
+  // Room id is selected but SDK hasn't handed us the Room yet — keep shell,
+  // never blank the whole main pane mid-sync.
+  if (!activeRoom) {
+    return (
+      <div className="flex-1 flex items-center justify-center tg-chat-bg">
+        <div className="flex flex-col items-center gap-2 text-white/45">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <p className="text-[13px]">Загрузка комнаты…</p>
+        </div>
+      </div>
+    )
+  }
+
   const isGroup = activeRoom.getJoinedMemberCount() > 2
+  // Fullscreen spinner ONLY before the first hydrate when there is nothing to show.
+  // Pagination must never take this branch — messages.length > 0 keeps the scroller mounted.
+  const isInitialLoading = messages.length === 0 && !initialHydrated
+  const isPaginatingOlder = isLoadingHistory && messages.length > 0
 
   return (
     <ImageOpenContext.Provider value={openImage}>
@@ -4256,46 +4634,6 @@ export function MessageTimeline() {
             onOpenDecrypt={() => setDecryptModalOpen(true)}
             onOpenProfile={() => openRoomProfile(activeRoom.roomId)}
           />
-          {pinnedMessages.length > 0 && (
-            <div ref={pinBarRef}>
-              <PinnedMessageBar
-                preview={
-                  pinnedMessages[
-                    Math.min(activePinIndex, pinnedMessages.length - 1)
-                  ]?.preview ?? ''
-                }
-                ts={
-                  pinnedMessages[
-                    Math.min(activePinIndex, pinnedMessages.length - 1)
-                  ]?.ts
-                }
-                index={
-                  Math.min(activePinIndex, pinnedMessages.length - 1) + 1
-                }
-                total={pinnedMessages.length}
-                personalOnly={(() => {
-                  const pin =
-                    pinnedMessages[
-                      Math.min(activePinIndex, pinnedMessages.length - 1)
-                    ]
-                  return !!pin && pin.scope.self && !pin.scope.room
-                })()}
-                canUnpin={(() => {
-                  const pin =
-                    pinnedMessages[
-                      Math.min(activePinIndex, pinnedMessages.length - 1)
-                    ]
-                  if (!pin || !activeRoom) return false
-                  if (pin.scope.self) return true
-                  return (
-                    pin.scope.room && canPinMessages(activeRoom, myUserId)
-                  )
-                })()}
-                onClick={() => void handlePinnedBarClick()}
-                onUnpin={() => void handleUnpinFromBar()}
-              />
-            </div>
-          )}
           {chatSearchOpen && (
             <div className="px-4 pb-3 relative" ref={searchPanelRef}>
               <div className="relative flex items-center">
@@ -4479,10 +4817,59 @@ export function MessageTimeline() {
           )}
         </div>
 
-        <div className="relative flex-1 min-h-0 flex flex-col">
-          {isLoadingHistory && (
-            <div className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center">
-              <span className="rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/55 backdrop-blur-xs">
+        {/* Pin bar lives ABOVE the scroll container — never overlays virtual rows */}
+        {pinnedMessages.length > 0 && (
+          <div
+            ref={pinBarRef}
+            className="tg-pinned-bar-slot shrink-0 border-b relative z-30"
+          >
+            <PinnedMessageBar
+              preview={
+                pinnedMessages[
+                  Math.min(activePinIndex, pinnedMessages.length - 1)
+                ]?.preview ?? ''
+              }
+              ts={
+                pinnedMessages[
+                  Math.min(activePinIndex, pinnedMessages.length - 1)
+                ]?.ts
+              }
+              index={Math.min(activePinIndex, pinnedMessages.length - 1) + 1}
+              total={pinnedMessages.length}
+              personalOnly={(() => {
+                const pin =
+                  pinnedMessages[
+                    Math.min(activePinIndex, pinnedMessages.length - 1)
+                  ]
+                return !!pin && pin.scope.self && !pin.scope.room
+              })()}
+              canUnpin={(() => {
+                const pin =
+                  pinnedMessages[
+                    Math.min(activePinIndex, pinnedMessages.length - 1)
+                  ]
+                if (!pin || !activeRoom) return false
+                if (pin.scope.self) return true
+                return pin.scope.room && canPinMessages(activeRoom, myUserId)
+              })()}
+              onClick={() => void handlePinnedBarClick()}
+              onUnpin={() => void handleUnpinFromBar()}
+            />
+          </div>
+        )}
+
+        <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Pagination only — never replaces / unmounts the scroll list */}
+          {isPaginatingOlder && (
+            <div
+              className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center [overflow-anchor:none]"
+              style={{ overflowAnchor: 'none' }}
+            >
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/55 backdrop-blur-xs [overflow-anchor:none]"
+                style={{ overflowAnchor: 'none' }}
+              >
+                <Loader2 className="w-3 h-3 animate-spin" />
                 Загрузка истории…
               </span>
             </div>
@@ -4523,10 +4910,30 @@ export function MessageTimeline() {
               void jumpToDay(dayStartMs)
             }}
           />
+          {/*
+            Initial empty room: fullscreen spinner is OK.
+            Once messages exist, the scroller stays mounted across pagination
+            so native overflow-anchor can keep the viewport stable.
+          */}
+          {isInitialLoading ? (
+            <div className="flex-1 flex items-center justify-center min-h-0">
+              <div className="flex flex-col items-center gap-2 text-white/45">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <p className="text-[13px]">Загрузка сообщений…</p>
+              </div>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center min-h-0">
+              <p className="text-white/40 text-[14px]">Нет сообщений</p>
+            </div>
+          ) : (
           <div
-            key={activeRoomId || 'no-room'}
             ref={timelineRef}
-            className="flex-1 px-4 py-2 overflow-y-auto overflow-x-hidden min-w-0"
+            className={clsx(
+              'tg-timeline-scroll flex-1 px-4 pt-3 pb-2 overflow-y-auto overflow-x-hidden min-w-0 min-h-0 flex flex-col [overflow-anchor:auto] scroll-pt-14 [scroll-behavior:auto]',
+              isReady ? 'opacity-100' : 'opacity-0 pointer-events-none',
+            )}
+            style={{ overflowAnchor: 'auto' }}
             tabIndex={-1}
             onScroll={handleTimelineScroll}
             onWheel={() => {
@@ -4554,79 +4961,100 @@ export function MessageTimeline() {
               if (e.button === 0) releasePinHoldOnUserScroll()
             }}
           >
-            {timelineRows.map((row) => {
-              const { item, dayChanged, showUnreadSep, isContinuation, isOwn } =
-                row
+              {timelineRows.map((row) => {
+                const { item, dayChanged, showUnreadSep, isContinuation, isOwn } =
+                  row
+                const rowEventId = row.firstEvent.getId()
 
-              return (
-                <div key={row.key} className="tg-timeline-row">
-                  {dayChanged && (
-                    <DateSeparator
-                      ts={row.firstEvent.getTs()}
-                      onJumpClick={openDateJump}
-                    />
-                  )}
-                  {showUnreadSep && <UnreadSeparator />}
-                  {item.kind === 'album' ? (
-                    <AlbumBubble
-                      item={item}
-                      isOwn={isOwn}
-                      showSender={isGroup && !isOwn}
-                      isContinuation={isContinuation}
-                      afterDaySep={dayChanged}
-                      room={activeRoom}
-                      myUserId={myUserId}
-                      reactionTick={reactionTick}
-                      receiptTick={receiptTick}
-                      selectedIds={selectedSet}
-                      highlightIds={highlightSet}
-                      selecting={selectionMode || selectedMediaIds.length > 0}
-                      searchHit={
-                        !!chatSearchQ &&
-                        item.events.some((e) =>
-                          eventMatchesSearch(e, chatSearchQ),
-                        )
-                      }
-                      onToggleSelect={toggleSelectMedia}
-                      onReply={handleReply}
-                      onContextMenu={openContextMenu}
-                      onScrollTo={scrollToEvent}
-                      mentionMembers={mentionMembers}
-                      onUserClick={handleUserClick}
-                    />
-                  ) : (
-                    <MessageBubble
-                      event={item.event}
-                      isOwn={isOwn}
-                      showSender={isGroup && !isOwn}
-                      isContinuation={isContinuation}
-                      afterDaySep={dayChanged}
-                      room={activeRoom}
-                      myUserId={myUserId}
-                      reactionTick={reactionTick}
-                      receiptTick={receiptTick}
-                      highlightIds={highlightSet}
-                      selecting={selectionMode || selectedMediaIds.length > 0}
-                      selected={
-                        !!item.event.getId() &&
-                        selectedSet.has(item.event.getId()!)
-                      }
-                      onToggleSelect={toggleSelectMedia}
-                      searchHit={
-                        !!chatSearchQ &&
-                        eventMatchesSearch(item.event, chatSearchQ)
-                      }
-                      mentionMembers={mentionMembers}
-                      onUserClick={handleUserClick}
-                      onReply={handleReply}
-                      onContextMenu={openContextMenu}
-                      onScrollTo={scrollToEvent}
-                    />
-                  )}
-                </div>
-              )
-            })}
+                return (
+                  <div
+                    key={row.key}
+                    id={rowEventId ? `message-${rowEventId}` : undefined}
+                    data-tg-row-key={row.key}
+                    className="tg-timeline-row shrink-0"
+                    style={{
+                      // Spacing via padding (never margin) — plays nicer with overflow-anchor
+                      paddingBottom: isContinuation ? 6 : 10,
+                    }}
+                  >
+                    {dayChanged && (
+                      <DateSeparator
+                        ts={row.firstEvent.getTs()}
+                        onJumpClick={openDateJump}
+                      />
+                    )}
+                    {showUnreadSep && <UnreadSeparator />}
+                    {item.kind === 'album' ? (
+                      <AlbumBubble
+                        item={item}
+                        isOwn={isOwn}
+                        showSender={isGroup && !isOwn}
+                        isContinuation={isContinuation}
+                        afterDaySep={dayChanged}
+                        room={activeRoom}
+                        myUserId={myUserId}
+                        reactionTick={reactionTick}
+                        receiptTick={receiptTick}
+                        selectedIds={selectedSet}
+                        highlightIds={highlightSet}
+                        selecting={selectionMode || selectedMediaIds.length > 0}
+                        searchHit={
+                          !!chatSearchQ &&
+                          item.events.some((e) =>
+                            eventMatchesSearch(e, chatSearchQ),
+                          )
+                        }
+                        onToggleSelect={toggleSelectMedia}
+                        onReply={handleReply}
+                        onContextMenu={openContextMenu}
+                        onScrollTo={scrollToEvent}
+                        mentionMembers={mentionMembers}
+                        onUserClick={handleUserClick}
+                        showHoverActions={
+                          !!item.imageEvents[0]?.getId() &&
+                          hoveredEventId === item.imageEvents[0].getId()
+                        }
+                        onHoverActionsChange={setHoveredEventIdDelayed}
+                      />
+                    ) : (
+                      <MessageBubble
+                        event={item.event}
+                        isOwn={isOwn}
+                        showSender={isGroup && !isOwn}
+                        isContinuation={isContinuation}
+                        afterDaySep={dayChanged}
+                        room={activeRoom}
+                        myUserId={myUserId}
+                        reactionTick={reactionTick}
+                        receiptTick={receiptTick}
+                        highlightIds={highlightSet}
+                        selecting={selectionMode || selectedMediaIds.length > 0}
+                        selected={
+                          !!item.event.getId() &&
+                          selectedSet.has(item.event.getId()!)
+                        }
+                        onToggleSelect={toggleSelectMedia}
+                        searchHit={
+                          !!chatSearchQ &&
+                          eventMatchesSearch(item.event, chatSearchQ)
+                        }
+                        mentionMembers={mentionMembers}
+                        onUserClick={handleUserClick}
+                        onReply={handleReply}
+                        onContextMenu={openContextMenu}
+                        onScrollTo={scrollToEvent}
+                        showHoverActions={
+                          !!item.event.getId() &&
+                          hoveredEventId === item.event.getId()
+                        }
+                        onHoverActionsChange={setHoveredEventIdDelayed}
+                      />
+                    )}
+                  </div>
+                )
+              })}
           </div>
+          )}
 
           {showJumpDown && (
             <button

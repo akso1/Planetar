@@ -673,12 +673,39 @@ export function ChatList() {
       if (!client) return
       setActionBusy(userId)
       try {
-        const existing = client.getRooms().find((room) => {
+        const myId = client.getUserId()
+        // Self-chat: DM lookup matches ANY direct room (you are always a member).
+        // Create / reopen a private notes room instead.
+        if (myId && userId === myId) {
+          const notesName = 'scroll-test'
+          const existingNotes = client
+            .getRooms()
+            .find((room) => room.name === notesName)
+          if (existingNotes) {
+            setActiveRoomId(existingNotes.roomId)
+            setQuery('')
+            return
+          }
+          const { room_id } = await client.createRoom({
+            name: notesName,
+            preset: Preset.PrivateChat,
+            topic: 'Temporary scroll test — safe to leave/delete',
+          })
+          setActiveRoomId(room_id)
+          setQuery('')
+          return
+        }
+
+        const existingDm = client.getRooms().find((room) => {
           if (!isDirectRoom(room)) return false
-          return room.getJoinedMembers().some((m) => m.userId === userId)
+          const others = room
+            .getJoinedMembers()
+            .map((m) => m.userId)
+            .filter((id) => id !== myId)
+          return others.length === 1 && others[0] === userId
         })
-        if (existing) {
-          setActiveRoomId(existing.roomId)
+        if (existingDm) {
+          setActiveRoomId(existingDm.roomId)
           setQuery('')
           return
         }

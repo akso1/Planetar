@@ -5,6 +5,7 @@ import {
   type VerificationRequest,
 } from 'matrix-js-sdk/lib/crypto-api'
 import { useSessionStore } from '@/entities/session/model/session'
+import { useRoomStore } from '@/entities/session/model/room.store'
 import { matrixService } from '@/shared/api/MatrixService'
 import { startDesktopNotifications } from '@/shared/lib/desktopNotifications'
 import { useVerificationUiStore } from '@/shared/lib/verificationUi'
@@ -20,6 +21,7 @@ const PROTECTION_PROMPT_KEY = 'matrix-chat-protection-prompted'
 
 export function MainLayout() {
   const client = useSessionStore((s) => s.client)
+  const activeRoomId = useRoomStore((s) => s.activeRoomId)
   const openIncoming = useVerificationUiStore((s) => s.openIncoming)
   const [protectionOpen, setProtectionOpen] = useState(false)
 
@@ -91,7 +93,8 @@ export function MainLayout() {
         <LeftSidebar />
         <ChatList />
         <main className="tg-main flex-1 min-w-0 flex flex-col overflow-hidden">
-          <MessageTimeline />
+          {/* Remount ONLY on room switch — never on pagination / sync churn */}
+          <MessageTimeline key={activeRoomId ?? 'no-room'} />
         </main>
       </div>
       {client && <DeviceVerificationModal client={client} />}

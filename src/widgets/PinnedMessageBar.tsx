@@ -43,7 +43,6 @@ export function PinnedMessageBar({
     <div
       className={clsx(
         'tg-pinned-bar group w-full px-3 py-2 flex items-center gap-2.5 text-left',
-        'border-t',
       )}
     >
       <button
