@@ -92,7 +92,7 @@ function InviteRow({
 
 export function InvitesBell() {
   const invites = useInvitesStore((s) => s.invites)
-  const busyRoomId = useInvitesStore((s) => s.busyRoomId)
+  const busyRoomIds = useInvitesStore((s) => s.busyRoomIds)
   const error = useInvitesStore((s) => s.error)
   const accept = useInvitesStore((s) => s.actions.accept)
   const decline = useInvitesStore((s) => s.actions.decline)
@@ -216,10 +216,13 @@ export function InvitesBell() {
                   <InviteRow
                     key={invite.roomId}
                     invite={invite}
-                    busy={busyRoomId === invite.roomId}
+                    busy={!!busyRoomIds[invite.roomId]}
                     onAccept={() => {
                       void accept(invite.roomId).then(() => {
-                        if (!useInvitesStore.getState().error) setOpen(false)
+                        const st = useInvitesStore.getState()
+                        if (st.error) return
+                        // Keep panel open if more invites remain
+                        if (st.invites.length === 0) setOpen(false)
                       })
                     }}
                     onDecline={() => {

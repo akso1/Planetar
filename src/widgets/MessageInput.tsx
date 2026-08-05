@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 import {
   Bold,
+  BarChart3,
   CaseSensitive,
   Code2,
   Copy,
@@ -40,11 +42,14 @@ import {
 import { VoiceRecorder } from '@/shared/lib/voiceRecorder'
 import { dataUrlToBlob, type StoredSticker } from '@/shared/lib/stickersStore'
 import { buildTextWithOptionalQuote, quoteSnippet } from '@/shared/lib/messageQuote'
+import { applyMentionLinksToContent } from '@/shared/lib/mentions'
 import {
   clearComposerDraft,
   loadComposerDraft,
+  rehydrateComposerDraft,
   saveComposerDraft,
 } from '@/shared/lib/composerDrafts'
+import { buildThreadRelation } from '@/shared/lib/threads'
 import { pushBreadcrumb } from '@/shared/lib/breadcrumbs'
 import { reportAppError } from '@/shared/lib/errorLog'
 import {
@@ -59,8 +64,11 @@ import {
   type FormatKind,
 } from '@/shared/lib/composerFormat'
 import { createComposerHistory } from '@/shared/lib/composerHistory'
+import { composerBannerMotion, composerReplySwapMotion, prefersReducedMotion } from '@/shared/lib/motion'
 import { AppContextMenu, type AppContextMenuItem } from '@/shared/ui/AppContextMenu'
 import { StickerPicker } from './StickerPicker'
+import { CreatePollDialog } from './CreatePollDialog'
+import { buildPollStartContent, pollNotificationSnippet } from '@/shared/lib/polls'
 
 const isMac =
   typeof navigator !== 'undefined' &&
@@ -123,6 +131,8 @@ type MessageInputProps = {
   onMentionConsumed?: () => void
   /** Called after a successful send / edit (scroll timeline to bottom, etc.) */
   onSent?: () => void
+  /** When set, sends as MSC3440 thread reply under this root event */
+  threadRootId?: string | null
 }
 
 function toPending(files: File[]): PendingItem[] {
@@ -133,6 +143,19 @@ function toPending(files: File[]): PendingItem[] {
       ? URL.createObjectURL(file)
       : null,
   }))
+}
+
+function seedComposerFromDraft(roomId: string): {
+  text: string
+  mentionUserIds: string[]
+  pending: PendingItem[]
+} {
+  const draft = rehydrateComposerDraft(roomId) ?? loadComposerDraft(roomId)
+  return {
+    text: draft?.text ?? '',
+    mentionUserIds: draft?.mentionUserIds ?? [],
+    pending: draft?.files?.length ? toPending(draft.files) : [],
+  }
 }
 
 /** Screenshots / clipboard blobs often have empty or generic names. */
@@ -236,7 +259,21 @@ async function filesFromClipboardApi(): Promise<File[]> {
 function attachReplyFields(
   content: Record<string, unknown>,
   replyTo: ReplyTarget | null | undefined,
+  threadRootId?: string | null,
 ) {
+  if (threadRootId) {
+    Object.assign(
+      content,
+      buildThreadRelation(threadRootId, replyTo?.eventId || threadRootId),
+    )
+    const mediaIds =
+      replyTo?.mediaIds?.filter(Boolean) ??
+      (replyTo?.eventId ? [replyTo.eventId] : [])
+    if (mediaIds.length > 0) {
+      content[REPLY_MEDIA_IDS_KEY] = mediaIds
+    }
+    return
+  }
   if (!replyTo?.eventId) return
   content['m.relates_to'] = {
     'm.in_reply_to': { event_id: replyTo.eventId },
@@ -269,12 +306,22 @@ export function MessageInput({
   pendingMention,
   onMentionConsumed,
   onSent,
+  threadRootId = null,
 }: MessageInputProps) {
-  const [text, setText] = useState('')
-  const [pending, setPending] = useState<PendingItem[]>([])
-  const [mentionUserIds, setMentionUserIds] = useState<string[]>([])
+  const draftRoomKey = threadRootId
+    ? `${activeRoom.roomId}::thread::${threadRootId}`
+    : activeRoom.roomId
+  const [seed] = useState(() => seedComposerFromDraft(draftRoomKey))
+  const [text, setText] = useState(seed.text)
+  const [pending, setPending] = useState<PendingItem[]>(seed.pending)
+  const [mentionUserIds, setMentionUserIds] = useState<string[]>(
+    seed.mentionUserIds,
+  )
   const [isSending, setIsSending] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pollOpen, setPollOpen] = useState(false)
+  const [pollBusy, setPollBusy] = useState(false)
+  const [pollError, setPollError] = useState<string | null>(null)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceElapsedMs, setVoiceElapsedMs] = useState(0)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -295,17 +342,31 @@ export function MessageInput({
   const voicePointerIdRef = useRef<number | null>(null)
   /** Keep selection across context-menu focus loss */
   const menuSelRef = useRef<ComposerSelection | null>(null)
-  const selRef = useRef({ start: 0, end: 0 })
+  const selRef = useRef({ start: seed.text.length, end: seed.text.length })
   const historyRef = useRef(createComposerHistory())
+  const historySeededRef = useRef(false)
+  if (!historySeededRef.current) {
+    historySeededRef.current = true
+    historyRef.current.reset({
+      value: seed.text,
+      start: seed.text.length,
+      end: seed.text.length,
+    })
+  }
   const editTargetRef = useRef(editTarget)
   editTargetRef.current = editTarget
-  const roomIdRef = useRef<string | null>(null)
+  const roomIdRef = useRef<string | null>(draftRoomKey)
   const textRef = useRef(text)
   const pendingRef = useRef(pending)
   const mentionsRef = useRef(mentionUserIds)
   textRef.current = text
   pendingRef.current = pending
   mentionsRef.current = mentionUserIds
+  /** Only persist/clear drafts after the user actually edits the composer. */
+  const draftDirtyRef = useRef(false)
+  const markDraftDirty = useCallback(() => {
+    draftDirtyRef.current = true
+  }, [])
   const typingActiveRef = useRef(false)
   const typingStopTimer = useRef<number | null>(null)
   const client = useSessionStore((state) => state.client)
@@ -450,6 +511,7 @@ export function MessageInput({
         mimeType: result.mimeType,
         fileName: result.fileName,
         replyToEventId: replyTo?.eventId,
+        threadRootId,
       })
       onClearReply?.()
       onSent?.()
@@ -478,13 +540,35 @@ export function MessageInput({
     onClearReply,
     onSent,
     replyTo?.eventId,
+    threadRootId,
   ])
 
   useEffect(() => {
     if (!externalFiles?.length) return
+    markDraftDirty()
     setPending((prev) => [...prev, ...toPending(externalFiles)])
     onExternalFilesConsumed?.()
-  }, [externalFiles, onExternalFilesConsumed])
+  }, [externalFiles, onExternalFilesConsumed, markDraftDirty])
+
+  // If seed somehow missed a persisted draft, pull it in once after mount.
+  useEffect(() => {
+    if (draftDirtyRef.current || editTarget) return
+    if (textRef.current.trim() || pendingRef.current.length) return
+    const draft = rehydrateComposerDraft(draftRoomKey)
+    if (!draft) return
+    if (!draft.text.trim() && !draft.mentionUserIds.length && !draft.files.length) {
+      return
+    }
+    setText(draft.text)
+    setMentionUserIds(draft.mentionUserIds)
+    if (draft.files.length) setPending(toPending(draft.files))
+    historyRef.current.reset({
+      value: draft.text,
+      start: draft.text.length,
+      end: draft.text.length,
+    })
+    selRef.current = { start: draft.text.length, end: draft.text.length }
+  }, [draftRoomKey, editTarget])
 
   useEffect(() => {
     if (editTarget) {
@@ -498,13 +582,22 @@ export function MessageInput({
         start: editTarget.body.length,
         end: editTarget.body.length,
       }
-      inputRef.current?.focus()
+      inputRef.current?.focus({ preventScroll: true })
       return
     }
   }, [editTarget?.eventId])
 
+  // Focus composer when entering a room / thread so typing can start immediately.
+  // preventScroll: avoid jumping the message timeline when the textarea focuses.
   useEffect(() => {
-    if (replyTo && !editTarget) inputRef.current?.focus()
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus({ preventScroll: true })
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [draftRoomKey])
+
+  useEffect(() => {
+    if (replyTo && !editTarget) inputRef.current?.focus({ preventScroll: true })
   }, [
     replyTo?.eventId,
     replyTo?.mediaIds?.join(','),
@@ -514,33 +607,57 @@ export function MessageInput({
 
   useEffect(() => {
     if (!pendingMention) return
-    const token = `@${pendingMention.displayName} `
-    setText((prev) => {
-      const needsSpace = prev.length > 0 && !/\s$/.test(prev)
-      return `${prev}${needsSpace ? ' ' : ''}${token}`
-    })
+    const raw = pendingMention.displayName.trim()
+    const token = `${raw.startsWith('@') ? raw : `@${raw}`} `
+    markDraftDirty()
+
+    const el = inputRef.current
+    const value = el?.value ?? text
+    // Prefer live caret; fall back to last known selRef (mention click blurs textarea)
+    let start =
+      el && document.activeElement === el
+        ? (el.selectionStart ?? selRef.current.start)
+        : selRef.current.start
+    let end =
+      el && document.activeElement === el
+        ? (el.selectionEnd ?? selRef.current.end)
+        : selRef.current.end
+    start = Math.max(0, Math.min(start, value.length))
+    end = Math.max(start, Math.min(end, value.length))
+
+    const before = value.slice(0, start)
+    const after = value.slice(end)
+    const needsSpaceBefore = before.length > 0 && !/\s$/.test(before)
+    const insert = `${needsSpaceBefore ? ' ' : ''}${token}`
+    const next = before + insert + after
+    const caret = before.length + insert.length
+
+    historyRef.current.checkpoint({ value, start, end })
+    setText(next)
     setMentionUserIds((prev) =>
       prev.includes(pendingMention.userId)
         ? prev
         : [...prev, pendingMention.userId],
     )
+    selRef.current = { start: caret, end: caret }
     onMentionConsumed?.()
-    // After profile modal closes / unmounts, focus composer at end
-    const focusEnd = () => {
-      const el = inputRef.current
-      if (!el) return
-      el.focus()
-      const end = el.value.length
+
+    const focusAtCaret = () => {
+      const node = inputRef.current
+      if (!node) return
+      node.focus({ preventScroll: true })
       try {
-        el.setSelectionRange(end, end)
+        node.setSelectionRange(caret, caret)
       } catch {
         /* ignore */
       }
     }
     requestAnimationFrame(() => {
-      focusEnd()
-      window.setTimeout(focusEnd, 80)
+      focusAtCaret()
+      window.setTimeout(focusAtCaret, 80)
     })
+    // intentionally omit `text` — use snapshot at mention click only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pendingMention?.nonce,
     pendingMention?.userId,
@@ -590,6 +707,7 @@ export function MessageInput({
   }
 
   const insertEmoji = (emoji: string) => {
+    markDraftDirty()
     const el = inputRef.current
     if (!el) {
       historyRef.current.checkpoint({
@@ -638,6 +756,7 @@ export function MessageInput({
     menuSelRef.current ?? readLiveSelection()
 
   const applySelection = (next: ComposerSelection, opts?: { checkpoint?: boolean }) => {
+    markDraftDirty()
     if (opts?.checkpoint !== false) {
       const before =
         menuSelRef.current && menuSelRef.current.value === text
@@ -968,6 +1087,7 @@ export function MessageInput({
   const addFiles = (list: FileList | File[]) => {
     const files = Array.from(list)
     if (!files.length) return
+    markDraftDirty()
     setPending((prev) => [...prev, ...toPending(files)])
   }
 
@@ -995,6 +1115,7 @@ export function MessageInput({
     })
     const next = text.slice(0, start) + clipText + text.slice(end)
     const caret = start + clipText.length
+    markDraftDirty()
     setText(next)
     requestAnimationFrame(() => {
       try {
@@ -1007,6 +1128,7 @@ export function MessageInput({
   }
 
   const removePending = (id: string) => {
+    markDraftDirty()
     setPending((prev) => {
       const item = prev.find((p) => p.id === id)
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
@@ -1015,6 +1137,7 @@ export function MessageInput({
   }
 
   const clearPending = () => {
+    markDraftDirty()
     setPending((prev) => {
       prev.forEach((p) => {
         if (p.previewUrl) URL.revokeObjectURL(p.previewUrl)
@@ -1034,7 +1157,10 @@ export function MessageInput({
         asSticker: true,
         w: sticker.w,
         h: sticker.h,
+        replyToEventId: replyTo?.eventId,
+        threadRootId,
       })
+      onClearReply?.()
       onSent?.()
     } catch (error) {
       console.error('Failed to send sticker', error)
@@ -1080,7 +1206,10 @@ export function MessageInput({
         asSticker: false,
         w: gif.w,
         h: gif.h,
+        replyToEventId: replyTo?.eventId,
+        threadRootId,
       })
+      onClearReply?.()
       onSent?.()
     } catch (error) {
       console.error('Failed to send gif', error)
@@ -1102,20 +1231,26 @@ export function MessageInput({
   }
 
   useEffect(() => {
-    const nextId = activeRoom.roomId
+    const nextId = draftRoomKey
     const prevId = roomIdRef.current
 
     stopTyping()
 
     if (prevId && prevId !== nextId && !editTargetRef.current) {
-      saveComposerDraft(prevId, {
-        text: textRef.current,
-        mentionUserIds: mentionsRef.current,
-        files: pendingRef.current.map((p) => p.file),
-      })
+      if (draftDirtyRef.current) {
+        saveComposerDraft(prevId, {
+          text: textRef.current,
+          mentionUserIds: mentionsRef.current,
+          files: pendingRef.current.map((p) => p.file),
+        })
+      } else {
+        // Don't wipe a persisted draft just because the composer remounted empty.
+        rehydrateComposerDraft(prevId)
+      }
     }
 
     if (prevId !== nextId) {
+      draftDirtyRef.current = false
       // Revoke object URLs from the room we're leaving
       setPending((prev) => {
         prev.forEach((p) => {
@@ -1124,7 +1259,7 @@ export function MessageInput({
         return []
       })
 
-      const draft = loadComposerDraft(nextId)
+      const draft = rehydrateComposerDraft(nextId) ?? loadComposerDraft(nextId)
       const nextText = draft?.text ?? ''
       setText(nextText)
       setMentionUserIds(draft?.mentionUserIds ?? [])
@@ -1148,13 +1283,36 @@ export function MessageInput({
     }
 
     roomIdRef.current = nextId
-  }, [activeRoom.roomId, stopTyping])
+  }, [draftRoomKey, stopTyping])
 
-  // Persist draft while typing (text survives refresh; files are session-only)
+  // Flush only if the user edited — otherwise restore sidebar draft from LS.
+  useEffect(() => {
+    return () => {
+      const id = roomIdRef.current
+      if (id && !editTargetRef.current) {
+        if (draftDirtyRef.current) {
+          saveComposerDraft(id, {
+            text: textRef.current,
+            mentionUserIds: mentionsRef.current,
+            files: pendingRef.current.map((p) => p.file),
+          })
+        } else {
+          rehydrateComposerDraft(id)
+        }
+      }
+      pendingRef.current.forEach((p) => {
+        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl)
+      })
+    }
+  }, [])
+
+  // Persist draft while typing (only after a real edit)
   useEffect(() => {
     if (editTarget) return
-    const roomId = activeRoom.roomId
+    if (!draftDirtyRef.current) return
+    const roomId = draftRoomKey
     const t = window.setTimeout(() => {
+      if (!draftDirtyRef.current) return
       saveComposerDraft(roomId, {
         text: textRef.current,
         mentionUserIds: mentionsRef.current,
@@ -1162,7 +1320,7 @@ export function MessageInput({
       })
     }, 280)
     return () => window.clearTimeout(t)
-  }, [text, mentionUserIds, pending, activeRoom.roomId, editTarget])
+  }, [text, mentionUserIds, pending, draftRoomKey, editTarget])
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1206,6 +1364,8 @@ export function MessageInput({
           newContent.format = 'org.matrix.custom.html'
           newContent.formatted_body = parsed.html
         }
+        attachMentions(newContent, mentionsSnapshot)
+        applyMentionLinksToContent(newContent, mentionsSnapshot, activeRoom)
 
         const content = {
           msgtype,
@@ -1252,7 +1412,8 @@ export function MessageInput({
     if (!caption && files.length === 0 && !quoteText) return
 
     stopTyping()
-    clearComposerDraft(activeRoom.roomId)
+    draftDirtyRef.current = false
+    clearComposerDraft(draftRoomKey)
 
     // Optimistic clear — text + reply chip + attachments together
     setText('')
@@ -1287,6 +1448,7 @@ export function MessageInput({
                 formatted_body: withQuote.formatted_body,
               }
             : undefined,
+          threadRootId,
         )
       } else {
         const built = buildTextWithOptionalQuote(caption, quoteText || null)
@@ -1298,8 +1460,9 @@ export function MessageInput({
           content.format = built.format
           content.formatted_body = built.formatted_body
         }
-        attachReplyFields(content, replySnapshot)
+        attachReplyFields(content, replySnapshot, threadRootId)
         attachMentions(content, mentionsSnapshot)
+        applyMentionLinksToContent(content, mentionsSnapshot, activeRoom)
         await client.sendEvent(
           activeRoom.roomId,
           EventType.RoomMessage,
@@ -1369,98 +1532,154 @@ export function MessageInput({
         <div className="mb-2 text-[12px] text-red-300/90 px-1">{voiceError}</div>
       )}
 
-      {voiceRecording && (
-        <div className="mb-3 flex items-center gap-3 rounded-xl bg-black/25 border border-white/8 px-3 py-2.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium text-white/90">Запись…</div>
-            <div className="text-[12px] text-white/50 tabular-nums">
-              {formatVoiceElapsed(voiceElapsedMs)} · отпустите, чтобы отправить
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={cancelVoiceRecording}
-            className="shrink-0 h-8 px-3 rounded-full text-[12px] text-white/70 hover:text-white hover:bg-white/10"
+      <AnimatePresence initial={false}>
+        {voiceRecording && (
+          <motion.div
+            key="voice"
+            className="mb-3 flex items-center gap-3 rounded-xl bg-surface-inset border border-hairline px-3 py-2.5"
+            {...(prefersReducedMotion()
+              ? {
+                  initial: { opacity: 0 },
+                  animate: { opacity: 1 },
+                  exit: { opacity: 0 },
+                }
+              : composerBannerMotion)}
           >
-            Отмена
-          </button>
-        </div>
-      )}
-      {editTarget && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl bg-black/25 border border-white/8 overflow-hidden">
-          <div className="w-1 self-stretch shrink-0 bg-amber-400/80" />
-          <div className="flex-1 min-w-0 py-2 pr-1">
-            <div className="text-[12px] font-semibold text-amber-300/90 truncate">
-              Редактирование
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-ink">Запись…</div>
+              <div className="text-[12px] text-ink-muted tabular-nums">
+                {formatVoiceElapsed(voiceElapsedMs)} · отпустите, чтобы отправить
+              </div>
             </div>
-            <div className="text-[12.5px] text-white/55 truncate">
-              {editTarget.body.replace(/\s+/g, ' ').trim() || 'Сообщение'}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setText('')
-              onClearEdit?.()
-            }}
-            className="shrink-0 w-8 h-8 mr-2 flex items-center justify-center rounded-full text-white/45 hover:text-white hover:bg-white/10"
-            aria-label="Отменить редактирование"
-            title="Отменить"
+            <button
+              type="button"
+              onClick={cancelVoiceRecording}
+              className="shrink-0 h-8 px-3 rounded-full text-[12px] text-ink-muted hover:text-ink hover:bg-surface-inset"
+            >
+              Отмена
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {editTarget && (
+          <motion.div
+            key="edit"
+            className="mb-3 flex items-center gap-2 rounded-xl bg-surface-inset border border-hairline overflow-hidden tg-composer-banner"
+            {...(prefersReducedMotion()
+              ? {
+                  initial: { opacity: 0 },
+                  animate: { opacity: 1 },
+                  exit: { opacity: 0 },
+                }
+              : composerBannerMotion)}
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <div className="w-1 self-stretch shrink-0 bg-amber-400/80" />
+            <div className="flex-1 min-w-0 py-2 pr-1">
+              <div className="text-[12px] font-semibold text-amber-500 truncate">
+                Редактирование
+              </div>
+              <div className="text-[12.5px] text-ink-muted truncate">
+                {editTarget.body.replace(/\s+/g, ' ').trim() || 'Сообщение'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setText('')
+                onClearEdit?.()
+              }}
+              className="shrink-0 w-8 h-8 mr-2 flex items-center justify-center rounded-full text-ink-faint hover:text-ink hover:bg-surface-inset"
+              aria-label="Отменить редактирование"
+              title="Отменить"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {!editTarget && replyTo && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl bg-black/25 border border-white/8 overflow-hidden">
-          <div
-            className="w-1 self-stretch shrink-0"
-            style={{
-              background: replyTo.senderId
-                ? getUserColor(replyTo.senderId)
-                : 'var(--accent-hover)',
-            }}
-          />
-          <div className="flex-1 min-w-0 py-2 pr-1">
+      <AnimatePresence initial={false}>
+        {!editTarget && replyTo && !threadRootId && (
+          <motion.div
+            key="reply-banner"
+            className="mb-3 flex items-center gap-2 rounded-xl bg-surface-inset border border-hairline overflow-hidden tg-composer-banner"
+            {...(prefersReducedMotion()
+              ? {
+                  initial: { opacity: 0 },
+                  animate: { opacity: 1 },
+                  exit: { opacity: 0 },
+                }
+              : composerBannerMotion)}
+          >
             <div
-              className="text-[12px] font-semibold truncate"
+              className="w-1 self-stretch shrink-0 rounded-full tg-composer-banner-bar"
               style={{
-                color: replyTo.senderId
+                background: replyTo.senderId
                   ? getUserColor(replyTo.senderId)
                   : 'var(--accent-hover)',
+                transition: prefersReducedMotion()
+                  ? undefined
+                  : 'background-color 200ms ease',
               }}
-            >
-              {replyBarTitle}
+            />
+            <div className="flex-1 min-w-0 grid overflow-hidden">
+              <AnimatePresence initial={false}>
+                <motion.div
+                  key={`${replyTo.eventId}-${replyTo.quoteText ?? ''}`}
+                  className="col-start-1 row-start-1 py-2 pr-1"
+                  {...(prefersReducedMotion()
+                    ? {
+                        initial: { opacity: 0 },
+                        animate: { opacity: 1 },
+                        exit: { opacity: 0 },
+                      }
+                    : composerReplySwapMotion)}
+                >
+                  <div
+                    className="text-[12px] font-semibold truncate"
+                    style={{
+                      color: replyTo.senderId
+                        ? getUserColor(replyTo.senderId)
+                        : 'var(--accent-hover)',
+                      transition: prefersReducedMotion()
+                        ? undefined
+                        : 'color 200ms ease',
+                    }}
+                  >
+                    {replyBarTitle}
+                  </div>
+                  <div
+                    className={clsx(
+                      'text-[12.5px] text-ink-muted truncate',
+                      replyTo.quoteText && 'italic',
+                    )}
+                  >
+                    {replyTo.quoteText ? `«${replyLabel}»` : replyLabel}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
             </div>
-            <div
-              className={clsx(
-                'text-[12.5px] text-white/55 truncate',
-                replyTo.quoteText && 'italic',
-              )}
+            <button
+              type="button"
+              onClick={() => onClearReply?.()}
+              className="shrink-0 w-8 h-8 mr-2 flex items-center justify-center rounded-full text-ink-faint hover:text-ink hover:bg-surface-inset"
+              aria-label="Отменить ответ"
+              title="Отменить"
             >
-              {replyTo.quoteText ? `«${replyLabel}»` : replyLabel}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onClearReply?.()}
-            className="shrink-0 w-8 h-8 mr-2 flex items-center justify-center rounded-full text-white/45 hover:text-white hover:bg-white/10"
-            aria-label="Отменить ответ"
-            title="Отменить"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {pending.length > 0 && (
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
           {pending.map((item) => (
             <div
               key={item.id}
-              className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-black/30 border border-white/10"
+              className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-black/30 border border-hairline"
             >
               {item.previewUrl ? (
                 <img
@@ -1469,7 +1688,7 @@ export function MessageInput({
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-[10px] text-white/50 px-1 text-center leading-tight">
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-ink-muted px-1 text-center leading-tight">
                   {item.file.name}
                 </div>
               )}
@@ -1508,6 +1727,20 @@ export function MessageInput({
           title="Прикрепить файлы"
         >
           <Paperclip className="w-5 h-5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setPollError(null)
+            setPollOpen(true)
+          }}
+          disabled={isSending || !!editTarget}
+          className="tg-icon-btn w-10 h-10 flex items-center justify-center rounded-full shrink-0 transition-colors disabled:opacity-40"
+          aria-label="Создать опрос"
+          title="Опрос"
+        >
+          <BarChart3 className="w-5 h-5" />
         </button>
 
         <button
@@ -1556,6 +1789,7 @@ export function MessageInput({
             }
           }}
           onChange={(e) => {
+            markDraftDirty()
             historyRef.current.noteTyping({
               value: text,
               start: selRef.current.start,
@@ -1563,6 +1797,10 @@ export function MessageInput({
             })
             const next = e.target.value
             setText(next)
+            // Drop stale mention ids when the user deletes the @token
+            if (!next.trim()) {
+              setMentionUserIds([])
+            }
             selRef.current = {
               start: e.target.selectionStart,
               end: e.target.selectionEnd,
@@ -1586,6 +1824,12 @@ export function MessageInput({
           }}
           onKeyDown={onComposerKeyDown}
           onPaste={onComposerPaste}
+          onBlur={(e) => {
+            selRef.current = {
+              start: e.currentTarget.selectionStart,
+              end: e.currentTarget.selectionEnd,
+            }
+          }}
           placeholder={
             editTarget
               ? 'Изменить сообщение…'
@@ -1707,6 +1951,59 @@ export function MessageInput({
           }}
         />
       )}
+
+      <CreatePollDialog
+        open={pollOpen}
+        busy={pollBusy}
+        error={pollError}
+        onClose={() => {
+          if (pollBusy) return
+          setPollOpen(false)
+          setPollError(null)
+        }}
+        onSubmit={(data) => {
+          void (async () => {
+            if (!client) return
+            setPollBusy(true)
+            setPollError(null)
+            try {
+              if (activeRoom.hasEncryptionStateEvent()) {
+                await matrixService.ensureCryptoReady()
+                client.getCrypto()?.prepareToEncrypt(activeRoom)
+              }
+              await client.sendEvent(
+                activeRoom.roomId,
+                'org.matrix.msc3381.poll.start' as any,
+                (() => {
+                  const content = buildPollStartContent(data) as Record<
+                    string,
+                    unknown
+                  >
+                  if (threadRootId) {
+                    Object.assign(
+                      content,
+                      buildThreadRelation(
+                        threadRootId,
+                        replyTo?.eventId || threadRootId,
+                      ),
+                    )
+                  }
+                  return content
+                })() as any,
+              )
+              setPollOpen(false)
+              onSent?.()
+            } catch (err) {
+              console.error('Failed to create poll', err)
+              setPollError(
+                err instanceof Error ? err.message : 'Не удалось создать опрос',
+              )
+            } finally {
+              setPollBusy(false)
+            }
+          })()
+        }}
+      />
     </form>
   )
 }
@@ -1714,6 +2011,8 @@ export function MessageInput({
 /** Build a short preview for the reply composer / chip */
 export function messageSnippet(event: MatrixEvent): string {
   if (event.isDecryptionFailure()) return 'Зашифрованное сообщение'
+  const poll = pollNotificationSnippet(event)
+  if (poll) return poll
   const content = event.getContent() as Record<string, unknown>
   const msgtype = content.msgtype as string | undefined
   switch (msgtype) {

@@ -2,6 +2,13 @@ import React, { type ReactNode } from 'react'
 import { RelationType, type MatrixEvent, type Room } from 'matrix-js-sdk'
 import { format } from 'date-fns'
 import { SpoilerText } from '@/shared/ui/SpoilerText'
+import { isThreadReplyEvent } from '@/shared/lib/threads'
+import {
+  buildCallHistoryMap,
+  callHistoryPreviewText,
+  getCallId,
+  isCallLifecycleEvent,
+} from '@/shared/lib/callTimeline'
 
 function stripMxReply(html: string): string {
   return html.replace(/<mx-reply[\s\S]*?<\/mx-reply>/gi, '')
@@ -194,8 +201,11 @@ export type RoomLastPreview = {
 
 export function getRoomLastMessagePreview(room: Room): RoomLastPreview {
   const events = room.getLiveTimeline().getEvents()
+  const myUserId = room.client?.getUserId?.() || ''
+  let callMap: ReturnType<typeof buildCallHistoryMap> | null = null
 
   let lastEvent: MatrixEvent | null = null
+  let callPreview: string | null = null
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]
     const type = ev.getType()
@@ -204,10 +214,26 @@ export function getRoomLastMessagePreview(room: Room): RoomLastPreview {
       continue
     }
     if (isReplaceEvent(ev) || ev.isRedacted()) continue
+    // Thread replies belong in the thread panel, not the room list tip
+    if (isThreadReplyEvent(ev)) continue
+
+    if (isCallLifecycleEvent(ev)) {
+      const callId = getCallId(ev)
+      if (!callId || !myUserId) continue
+      if (!callMap) callMap = buildCallHistoryMap(events, myUserId)
+      const summary = callMap.get(callId)
+      if (!summary) continue
+      callPreview = callHistoryPreviewText(summary)
+      lastEvent = summary.anchorEvent
+      break
+    }
 
     if (
       type === 'm.room.message' ||
+      type === 'm.sticker' ||
       type === 'm.room.encrypted' ||
+      type === 'org.matrix.msc3381.poll.start' ||
+      type === 'm.poll.start' ||
       ev.isDecryptionFailure()
     ) {
       lastEvent = ev
@@ -230,11 +256,22 @@ export function getRoomLastMessagePreview(room: Room): RoomLastPreview {
   let text = ''
   let rich: ReactNode = null
 
-  if (
+  if (callPreview) {
+    text = callPreview
+  } else if (
     lastEvent.isDecryptionFailure() ||
     body.startsWith('Unable to decrypt')
   ) {
     text = '🔒 Зашифрованное сообщение'
+  } else if (lastEvent.getType() === 'm.sticker') {
+    text = '🎟 Стикер'
+  } else if (
+    lastEvent.getType() === 'org.matrix.msc3381.poll.start' ||
+    lastEvent.getType() === 'm.poll.start' ||
+    !!(content as any)['org.matrix.msc3381.poll.start'] ||
+    !!(content as any)['m.poll.start']
+  ) {
+    text = '📊 Опрос'
   } else if (content.msgtype === 'm.image') {
     text = '📷 Фотография'
   } else if (content.msgtype === 'm.audio') {
@@ -264,7 +301,8 @@ export function getRoomLastMessagePreview(room: Room): RoomLastPreview {
   const isGroupChat = room.getJoinedMemberCount() > 2
   let authorPrefix = ''
 
-  if (isGroupChat && sender) {
+  // Call history is a system-style tip — no sender prefix
+  if (!callPreview && isGroupChat && sender) {
     const member = lastEvent.sender
     const shortName =
       member?.name || sender.split(':')[0].substring(1) || 'Кто-то'

@@ -568,7 +568,7 @@ export function buildErrorEmailReport(opts: {
 }): { subject: string; body: string; report: DiagnosticReport } {
   const report = buildDiagnosticReport(opts)
   return {
-    subject: `[Matrix Client] report ${report.reportId}`,
+    subject: `[Planetar] report ${report.reportId}`,
     body: formatDiagnosticReportText(report),
     report,
   }
@@ -610,7 +610,7 @@ export function buildShortMailtoReport(opts: {
       'Пожалуйста, приложите скачанный файл отчёта (.txt) к этому письму.',
   )
   return {
-    subject: `[Matrix Client] report ${report.reportId}`,
+    subject: `[Planetar] report ${report.reportId}`,
     body: lines.join('\n'),
   }
 }
@@ -663,35 +663,65 @@ export async function downloadTextFile(
 
 let installed = false
 
-/** Install global window / promise handlers once. */
+/** Install global window / promise / main-IPC handlers once (call as early as possible). */
 export function installRendererErrorReporting(): void {
   if (installed || typeof window === 'undefined') return
   installed = true
-  useErrorLogStore.getState().hydrate()
+  try {
+    useErrorLogStore.getState().hydrate()
+  } catch {
+    /* localStorage may be unavailable in exotic contexts */
+  }
   pushBreadcrumb('error_reporting_ready')
 
+  const safeReport = (input: ReportInput) => {
+    try {
+      reportAppError(input)
+    } catch (err) {
+      console.error('[errorLog] reportAppError failed', err)
+    }
+  }
+
   window.addEventListener('error', (event) => {
-    reportAppError({
+    safeReport({
       error: event.error ?? event.message,
       source: 'window',
-      stack: event.error instanceof Error ? event.error.stack : undefined,
+      stack:
+        event.error instanceof Error
+          ? event.error.stack
+          : [event.filename, event.lineno, event.colno].filter(Boolean).join(':'),
+      context: {
+        screen: 'window_error',
+        extra: {
+          filename: event.filename || undefined,
+          lineno: event.lineno,
+          colno: event.colno,
+        },
+      },
     })
   })
 
   window.addEventListener('unhandledrejection', (event) => {
-    reportAppError({
+    safeReport({
       error: event.reason,
       source: 'promise',
+      context: { screen: 'unhandled_rejection' },
     })
   })
 
-  window.electronAPI?.onMainError?.((payload) => {
-    reportAppError({
-      title: payload.title,
-      summary: payload.summary,
-      detail: payload.detail,
-      stack: payload.stack,
-      source: 'main',
+  // Main-process crashes forwarded over preload IPC → same Settings → Errors store
+  try {
+    window.electronAPI?.onMainError?.((payload) => {
+      safeReport({
+        title: payload.title,
+        summary: payload.summary,
+        detail: payload.detail,
+        stack: payload.stack,
+        source: 'main',
+        context: { screen: 'electron_main' },
+      })
     })
-  })
+  } catch (err) {
+    console.error('[errorLog] onMainError subscribe failed', err)
+  }
 }

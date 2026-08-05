@@ -4,6 +4,12 @@ import { clsx } from 'clsx'
 import { userIdFromMatrixTo } from '@/shared/lib/openDm'
 import { getUserColor, getUserColorAlpha } from '@/shared/lib/color'
 import { withTwemoji } from '@/shared/ui/twemoji'
+import {
+  buildMentionLabelMap,
+  mentionClickAnchorFromEl,
+  mxidLocalpart,
+  type MentionUserClickHandler,
+} from '@/shared/lib/mentions'
 
 export type MentionMember = {
   userId: string
@@ -15,7 +21,7 @@ type MessageMarkdownProps = {
   className?: string
   /** Room members — used to resolve @DisplayName → userId */
   members?: MentionMember[]
-  onUserClick?: (userId: string) => void
+  onUserClick?: MentionUserClickHandler
 }
 
 const MENTION_PILL_BASE =
@@ -36,6 +42,24 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/** Flatten react-markdown children to plain text (for URL-shaped mention labels). */
+function flattenMdText(node: unknown): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(flattenMdText).join('')
+  if (
+    typeof node === 'object' &&
+    node !== null &&
+    'props' in node &&
+    (node as { props?: { children?: unknown } }).props
+  ) {
+    return flattenMdText(
+      (node as { props: { children?: unknown } }).props.children,
+    )
+  }
+  return ''
+}
+
 /**
  * Turn @mxid / @DisplayName into markdown links so we can style them as pills.
  * Skips regions that are already markdown links or code.
@@ -47,9 +71,9 @@ function linkifyMentions(text: string, members: MentionMember[]): string {
     slots.push(chunk)
     return `\u0000${slots.length - 1}\u0000`
   }
+  const parkLinks = (s: string) => s.replace(/\[[^\]]*]\([^)]+\)/g, park)
 
-  let out = text
-    .replace(/\[[^\]]*]\([^)]+\)/g, park)
+  let out = parkLinks(text)
     .replace(/`[^`]+`/g, park)
     .replace(/```[\s\S]*?```/g, park)
 
@@ -60,25 +84,33 @@ function linkifyMentions(text: string, members: MentionMember[]): string {
       `${pre}[${mxid}](https://matrix.to/#/${mxid})`,
   )
 
-  // Display names (longest first to avoid partial overlaps)
-  const sorted = [...members].sort(
-    (a, b) => b.displayName.length - a.displayName.length,
-  )
-  for (const m of sorted) {
-    if (!m.displayName.trim()) continue
+  // Critical: re-park links we just created, otherwise @localpart matches
+  // inside `[@user:server](url)` (prefix `[`) and nests → `[[@user](url)](url)`,
+  // which renders as `[` + @pill + raw matrix.to pill.
+  out = parkLinks(out)
+
+  // Known members via shared map (localpart / single-token display).
+  // Full MXIDs already linked + parked above; skip keys that contain ':'.
+  const tokens = [...buildMentionLabelMap(members).entries()]
+    .filter(([key]) => !key.includes(':'))
+    .sort((a, b) => b[0].length - a[0].length)
+
+  for (const [key, userId] of tokens) {
+    const label = key.slice(1) // drop leading @
+    if (!label) continue
     let re: RegExp
     try {
       re = new RegExp(
-        `(^|[\\s([{])(@${escapeRegExp(m.displayName)})(?=$|[\\s.,!?;:)\\]}])`,
-        'g',
+        `(^|[\\s([{])(@${escapeRegExp(label)})(?=$|[\\s.,!?;:)\\]}])`,
+        'gi',
       )
     } catch {
       continue
     }
     out = out.replace(
       re,
-      (_m, pre: string, label: string) =>
-        `${pre}[${label}](https://matrix.to/#/${m.userId})`,
+      (_m, pre: string, tok: string) =>
+        `${pre}[${tok}](https://matrix.to/#/${userId})`,
     )
   }
 
@@ -117,6 +149,13 @@ export function MessageMarkdown({
           a: ({ href, children }) => {
             const userId = userIdFromMatrixTo(href)
             if (userId) {
+              // Defense: bare matrix.to autolinks show the URL as children —
+              // prefer a short @handle so we never paint a URL-shaped mention pill.
+              const raw = flattenMdText(children).trim()
+              const label =
+                !raw || /^https?:\/\//i.test(raw)
+                  ? `@${mxidLocalpart(userId) || userId}`
+                  : null
               return (
                 <button
                   type="button"
@@ -128,10 +167,16 @@ export function MessageMarkdown({
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    onUserClick?.(userId)
+                    const fromDom = (e.currentTarget.textContent || '').trim()
+                    onUserClick?.(
+                      userId,
+                      fromDom || label || undefined,
+                      mentionClickAnchorFromEl(e.currentTarget),
+                    )
                   }}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
-                  {withTwemoji(children)}
+                  {label ? withTwemoji(label) : withTwemoji(children)}
                 </button>
               )
             }

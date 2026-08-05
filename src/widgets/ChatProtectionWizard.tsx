@@ -16,7 +16,20 @@ import { reportAppError } from '@/shared/lib/errorLog'
 import { checkChatProtectionNeeded } from '@/shared/lib/chatProtection'
 import { clsx } from 'clsx'
 
-type Step = 'intro' | 'auth' | 'working' | 'show-key' | 'done' | 'ready'
+type Step =
+  | 'intro'
+  | 'auth'
+  | 'working'
+  | 'show-key'
+  | 'done'
+  | 'ready'
+  | 'joined'
+
+type SetupOpts = {
+  /** Explicit reset: create a NEW secret storage (orphans previous recovery key). */
+  reset?: boolean
+  authPassword?: string
+}
 
 type ChatProtectionWizardProps = {
   client: MatrixClient
@@ -43,6 +56,10 @@ export function ChatProtectionWizard({
   const [confirmed, setConfirmed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Account already has default secret-storage key on the homeserver */
+  const [hasExistingSS, setHasExistingSS] = useState(false)
+  /** Pending setup mode while interactive auth is collected */
+  const [pendingReset, setPendingReset] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -53,10 +70,19 @@ export function ChatProtectionWizard({
     setConfirmed(false)
     setError(null)
     setBusy(false)
+    setHasExistingSS(false)
+    setPendingReset(false)
     pushBreadcrumb('chat_protection_open')
 
     let cancelled = false
     void (async () => {
+      try {
+        await matrixService.ensureCryptoReady()
+        const defaultId = await client.secretStorage.getDefaultKeyId()
+        if (!cancelled) setHasExistingSS(!!defaultId)
+      } catch {
+        /* ignore — setup path still works */
+      }
       const needed = await checkChatProtectionNeeded(client)
       if (cancelled) return
       if (!needed) setStep('ready')
@@ -72,10 +98,13 @@ export function ChatProtectionWizard({
   }, [onClose, onComplete])
 
   const runSetup = useCallback(
-    async (authPassword?: string) => {
+    async (opts: SetupOpts = {}) => {
+      const reset = opts.reset === true
+      const authPassword = opts.authPassword
       setBusy(true)
       setError(null)
       setStep('working')
+      setPendingReset(reset)
       try {
         await matrixService.ensureCryptoReady()
         const crypto = client.getCrypto()
@@ -83,17 +112,16 @@ export function ChatProtectionWizard({
           throw new Error('Не удалось включить защиту на этом устройстве.')
         }
 
-        const generated = await crypto.createRecoveryKeyFromPassphrase()
-        const encoded =
-          generated.encodedPrivateKey ||
-          encodeRecoveryKey(generated.privateKey) ||
-          ''
-        if (!encoded) {
-          throw new Error('Не удалось создать ключ восстановления.')
-        }
-
         const userId = client.getUserId()
         if (!userId) throw new Error('Сессия недействительна. Войдите снова.')
+
+        let defaultKeyId: string | null = null
+        try {
+          defaultKeyId = await client.secretStorage.getDefaultKeyId()
+        } catch {
+          defaultKeyId = null
+        }
+        const joinExisting = !!defaultKeyId && !reset
 
         await crypto.bootstrapCrossSigning({
           authUploadDeviceSigningKeys: async (makeRequest) => {
@@ -117,13 +145,40 @@ export function ChatProtectionWizard({
           },
         })
 
+        if (joinExisting) {
+          // Join existing secret storage — do NOT rotate recovery key
+          await crypto.bootstrapSecretStorage({
+            setupNewSecretStorage: false,
+            setupNewKeyBackup: false,
+          })
+          try {
+            await crypto.loadSessionBackupPrivateKeyFromSecretStorage()
+            await crypto.restoreKeyBackup()
+          } catch {
+            // Key not cached yet — user unlocks via DecryptHistoryModal
+          }
+          setHasExistingSS(true)
+          setStep('joined')
+          pushBreadcrumb('chat_protection_joined')
+          return
+        }
+
+        // Fresh setup or explicit reset — create new recovery key + SS
+        const generated = await crypto.createRecoveryKeyFromPassphrase()
+        const encoded =
+          generated.encodedPrivateKey ||
+          encodeRecoveryKey(generated.privateKey) ||
+          ''
+        if (!encoded) {
+          throw new Error('Не удалось создать ключ восстановления.')
+        }
+
         await crypto.bootstrapSecretStorage({
           createSecretStorageKey: async () => generated,
           setupNewSecretStorage: true,
           setupNewKeyBackup: true,
         })
 
-        // Cache for immediate restore/decrypt in this session
         try {
           const keyTuple = await client.secretStorage.getKey()
           if (keyTuple) {
@@ -137,8 +192,11 @@ export function ChatProtectionWizard({
         }
 
         setRecoveryKey(encoded)
+        setHasExistingSS(true)
         setStep('show-key')
-        pushBreadcrumb('chat_protection_created')
+        pushBreadcrumb(
+          reset ? 'chat_protection_reset' : 'chat_protection_created',
+        )
       } catch (err) {
         if (err instanceof Error && err.message === 'NEED_PASSWORD') {
           setStep('auth')
@@ -148,7 +206,7 @@ export function ChatProtectionWizard({
         const msg =
           err instanceof Error ? err.message : 'Не удалось настроить защиту'
         setError(msg)
-        setStep(authPassword ? 'auth' : 'intro')
+        setStep(authPassword ? 'auth' : reset ? 'ready' : 'intro')
         reportAppError({
           title: 'Защита чатов',
           summary: msg,
@@ -220,6 +278,9 @@ export function ChatProtectionWizard({
                   Защита чатов уже настроена на этом аккаунте. Можете подтвердить
                   устройство через другое или восстановить историю ключом.
                 </p>
+                {error && (
+                  <div className="text-[13px] text-red-300/90">{error}</div>
+                )}
                 <button
                   type="button"
                   onClick={finish}
@@ -227,32 +288,106 @@ export function ChatProtectionWizard({
                 >
                   Понятно
                 </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        'Создать новый ключ восстановления? Старый ключ перестанет открывать историю на других устройствах.',
+                      )
+                    ) {
+                      return
+                    }
+                    void runSetup({ reset: true })
+                  }}
+                  className="w-full text-[12.5px] text-red-300/90 hover:text-red-200 py-1"
+                >
+                  Сбросить и создать новый ключ…
+                </button>
+              </>
+            )}
+
+            {step === 'joined' && (
+              <>
+                <p className="text-sm text-ink leading-relaxed">
+                  Устройство подключено к существующей защите аккаунта. Новый
+                  ключ не создавался.
+                </p>
+                <p className="text-xs text-ink-muted leading-relaxed">
+                  Чтобы расшифровать старую переписку, введите ваш текущий ключ
+                  восстановления в разделе расшифровки истории.
+                </p>
+                <button
+                  type="button"
+                  onClick={finish}
+                  className="w-full rounded-lg bg-accent/50 hover:bg-accent/70 border border-accent/50 text-ink text-sm font-medium py-2.5"
+                >
+                  Готово
+                </button>
               </>
             )}
 
             {step === 'intro' && (
               <>
-                <p className="text-sm text-ink leading-relaxed">
-                  Сообщения в личных чатах защищены сквозным шифрованием. Создайте
-                  ключ восстановления — он понадобится на новом устройстве, чтобы
-                  читать старую переписку.
-                </p>
-                <p className="text-xs text-ink-muted leading-relaxed">
-                  Ключ показывается один раз. Сохраните его в надёжном месте —
-                  мы не сможем восстановить его за вас.
-                </p>
+                {hasExistingSS ? (
+                  <>
+                    <p className="text-sm text-ink leading-relaxed">
+                      На аккаунте уже есть ключ восстановления. Подключим это
+                      устройство к существующей защите — без создания нового
+                      ключа.
+                    </p>
+                    <p className="text-xs text-ink-muted leading-relaxed">
+                      Если ключ потерян, можно сбросить защиту и создать новый
+                      (старые устройства потеряют доступ к истории).
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-ink leading-relaxed">
+                      Сообщения в личных чатах защищены сквозным шифрованием.
+                      Создайте ключ восстановления — он понадобится на новом
+                      устройстве, чтобы читать старую переписку.
+                    </p>
+                    <p className="text-xs text-ink-muted leading-relaxed">
+                      Ключ показывается один раз. Сохраните его в надёжном месте
+                      — мы не сможем восстановить его за вас.
+                    </p>
+                  </>
+                )}
                 {error && (
                   <div className="text-[13px] text-red-300/90">{error}</div>
                 )}
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void runSetup()}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-100 text-sm font-medium py-2.5 disabled:opacity-50"
+                  onClick={() => void runSetup({ reset: false })}
+                  className="tg-btn-emerald w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium py-2.5"
                 >
                   <KeyRound className="w-4 h-4" />
-                  Включить защиту
+                  {hasExistingSS
+                    ? 'Подключить это устройство'
+                    : 'Включить защиту'}
                 </button>
+                {hasExistingSS && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          'Создать новый ключ? Старый перестанет работать на других устройствах.',
+                        )
+                      ) {
+                        return
+                      }
+                      void runSetup({ reset: true })
+                    }}
+                    className="w-full text-[12.5px] text-ink-muted hover:text-red-300/90 py-1"
+                  >
+                    Сбросить и создать новый ключ…
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
@@ -282,7 +417,12 @@ export function ChatProtectionWizard({
                 <button
                   type="button"
                   disabled={busy || !password.trim()}
-                  onClick={() => void runSetup(password)}
+                  onClick={() =>
+                    void runSetup({
+                      authPassword: password,
+                      reset: pendingReset,
+                    })
+                  }
                   className="w-full rounded-lg bg-accent/50 hover:bg-accent/70 border border-accent/50 text-ink text-sm font-medium py-2.5 disabled:opacity-50"
                 >
                   Продолжить
@@ -333,7 +473,7 @@ export function ChatProtectionWizard({
                   className={clsx(
                     'w-full rounded-lg text-sm font-medium py-2.5 border',
                     confirmed
-                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40 text-emerald-100'
+                      ? 'tg-btn-emerald'
                       : 'opacity-40 border-hairline',
                   )}
                 >

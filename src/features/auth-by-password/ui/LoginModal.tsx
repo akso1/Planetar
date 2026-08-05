@@ -96,20 +96,20 @@ export function LoginModal() {
   }
 
   const inputStyles =
-    'bg-white/10 border border-white/10 text-white placeholder-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent w-full'
+    'bg-surface-inset border border-hairline text-ink placeholder:text-ink-faint rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent w-full'
   const busy = isLoading || isSsoLoading
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-chatBg">
+    <div className="h-full w-full min-h-0 flex items-center justify-center bg-chatBg">
       <div className="w-full max-w-sm p-8 space-y-6 bg-chatSidebar rounded-2xl shadow-panel border border-hairline backdrop-blur-md">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-chatText">Sign In</h1>
-          <p className="text-white/45 text-sm mt-1">to your Matrix account</p>
+          <h1 className="text-2xl font-bold text-chatText">Planetar</h1>
+          <p className="text-ink-faint text-sm mt-1">Sign in to your Matrix account</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-white/70 block mb-1.5">
+            <label className="text-sm font-medium text-ink-muted block mb-1.5">
               Homeserver
             </label>
             <input
@@ -121,7 +121,7 @@ export function LoginModal() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-white/70 block mb-1.5">
+            <label className="text-sm font-medium text-ink-muted block mb-1.5">
               Username
             </label>
             <input
@@ -134,7 +134,7 @@ export function LoginModal() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-white/70 block mb-1.5">
+            <label className="text-sm font-medium text-ink-muted block mb-1.5">
               Password
             </label>
             <input
@@ -151,7 +151,7 @@ export function LoginModal() {
           <button
             type="submit"
             disabled={busy}
-            className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-accent hover:bg-accent-hover text-[color:var(--color-on-accent)] font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Signing In...' : 'Sign In'}
           </button>
@@ -159,10 +159,10 @@ export function LoginModal() {
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-white/10" />
+            <div className="w-full border-t border-hairline" />
           </div>
           <div className="relative flex justify-center text-xs">
-            <span className="px-2 bg-chatSidebar text-white/35 uppercase tracking-wide">
+            <span className="px-2 bg-chatSidebar text-ink-faint uppercase tracking-wide">
               or
             </span>
           </div>
@@ -172,7 +172,7 @@ export function LoginModal() {
           type="button"
           onClick={handleSso}
           disabled={busy || !ssoAvailable}
-          className="w-full flex items-center justify-center gap-2.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-chatText font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-2.5 bg-surface-inset hover:bg-surface-inset border border-hairline text-chatText font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <GoogleIcon />
           {isSsoLoading ? 'Waiting for browser…' : ssoLabel}

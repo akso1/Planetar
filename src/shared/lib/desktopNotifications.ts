@@ -14,6 +14,7 @@ import {
   isRoomMuted,
   useNotificationPrefsStore,
 } from '@/shared/lib/notificationPrefs'
+import { pollNotificationSnippet } from '@/shared/lib/polls'
 
 export type DesktopNotificationPayload = {
   title: string
@@ -36,6 +37,8 @@ function isReplaceOrReaction(ev: MatrixEvent): boolean {
 
 function notificationBody(event: MatrixEvent): string {
   if (event.isDecryptionFailure()) return '🔒 Зашифрованное сообщение'
+  const poll = pollNotificationSnippet(event)
+  if (poll) return poll
   if (event.getType() === 'm.sticker') return '🎟 Стикер'
 
   const content = event.getContent() as Record<string, unknown>
@@ -121,71 +124,75 @@ async function shouldSuppressForRoom(roomId: string): Promise<boolean> {
   return document.visibilityState === 'visible' && document.hasFocus()
 }
 
-async function ensureWebNotificationPermission(): Promise<boolean> {
-  if (typeof Notification === 'undefined') return false
-  if (Notification.permission === 'granted') return true
-  if (Notification.permission === 'denied') return false
-  try {
-    const result = await Notification.requestPermission()
-    return result === 'granted'
-  } catch {
-    return false
+/** Push a native OS banner via Electron main (never HTML5 Notification). */
+function showDesktopNotification(payload: DesktopNotificationPayload) {
+  const title = payload.title.slice(0, 120)
+  const body = payload.body.slice(0, 240)
+  const data = {
+    title,
+    body,
+    roomId: payload.roomId,
+    eventId: payload.eventId,
   }
-}
 
-function showWebNotification(payload: DesktopNotificationPayload): boolean {
-  if (typeof Notification === 'undefined') return false
-  if (Notification.permission !== 'granted') return false
-  try {
-    const n = new Notification(payload.title, {
-      body: payload.body,
-      silent: false,
-      tag: `mx:${payload.roomId}:${payload.eventId || 'new'}`,
-    })
-    n.onclick = () => {
-      window.focus()
-      if (payload.eventId) {
-        useRoomStore
-          .getState()
-          .actions.openRoomAtEvent(payload.roomId, payload.eventId)
-      } else {
-        useRoomStore.getState().actions.setActiveRoomId(payload.roomId)
-      }
-      n.close()
-    }
-    return true
-  } catch (err) {
-    console.warn('[notifications] web Notification failed', err)
-    return false
-  }
-}
-
-async function showDesktopNotification(payload: DesktopNotificationPayload) {
-  console.info('[notifications] show:', payload.title, '—', payload.body)
-
-  const webOk = showWebNotification(payload)
+  console.info('[notifications] show:', title, '—', body)
 
   const api = window.electronAPI
-  if (!api?.showNotification) {
-    if (!webOk) {
-      console.warn(
-        '[notifications] нет API Electron и web Notification не сработал',
-      )
-    }
+  if (api?.showNativeNotification) {
+    api.showNativeNotification(data)
     return
   }
-  try {
-    const result = await api.showNotification(payload)
-    if (result && 'ok' in result && result.ok === false) {
-      console.warn(
-        '[notifications] Electron Notification отклонён:',
-        (result as { reason?: string }).reason ||
-          'проверьте Системные настройки → Уведомления → Electron',
-      )
-    }
-  } catch (err) {
-    console.warn('[notifications] Electron IPC error', err)
+
+  // Legacy invoke path (older preload)
+  if (api?.showNotification) {
+    void api.showNotification(data).then((result) => {
+      if (result && 'ok' in result && result.ok === false) {
+        console.warn(
+          '[notifications] Electron Notification отклонён:',
+          result.reason ||
+            'проверьте Системные настройки → Уведомления → Electron / Planetar',
+        )
+      }
+    }).catch((err) => {
+      console.warn('[notifications] Electron IPC error', err)
+    })
+    return
   }
+
+  console.warn(
+    '[notifications] нет native IPC — нужен полный перезапуск приложения',
+  )
+}
+
+/** Incoming 1:1 call — notify when window is not focused (ringtone is separate). */
+export async function notifyIncomingCall(payload: {
+  roomId: string
+  title: string
+  body: string
+}): Promise<void> {
+  if (!areNotificationsEnabled()) return
+  if (isRoomMuted(payload.roomId)) return
+
+  let focused = false
+  try {
+    if (window.electronAPI?.isWindowFocused) {
+      focused = !!(await window.electronAPI.isWindowFocused())
+    } else {
+      focused =
+        document.visibilityState === 'visible' && document.hasFocus()
+    }
+  } catch {
+    focused = false
+  }
+
+  // In-focus: CallOverlay ringtone is enough. Background: system notification.
+  if (focused) return
+
+  showDesktopNotification({
+    title: payload.title,
+    body: payload.body,
+    roomId: payload.roomId,
+  })
 }
 
 /**
@@ -197,13 +204,17 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
   let armed = false
 
   useNotificationPrefsStore.getState().hydrate()
+  void useNotificationPrefsStore.getState().syncFromClient(client)
+  const unbindPushRules =
+    useNotificationPrefsStore.getState().bindPushRulesListener(client)
 
-  void ensureWebNotificationPermission().then((ok) => {
-    console.info(
-      '[notifications] web permission:',
-      ok ? 'granted' : Notification?.permission || 'n/a',
+  if (!window.electronAPI?.showNativeNotification && !window.electronAPI?.showNotification) {
+    console.warn(
+      '[notifications] Electron API нет — нужен полный перезапуск (Cmd+Q)',
     )
-  })
+  } else {
+    console.info('[notifications] native main-process banners ready')
+  }
 
   const armTimer = window.setTimeout(() => {
     armed = true
@@ -213,18 +224,12 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
       return
     }
     // Self-test so permissions / UI path are visible immediately
-    void showDesktopNotification({
+    showDesktopNotification({
       title: 'Уведомления включены',
       body: 'Если видишь это — пуши работают. Дальше только когда чат не в фокусе.',
       roomId: useRoomStore.getState().activeRoomId || 'test',
     })
   }, 1500)
-
-  if (!window.electronAPI?.showNotification) {
-    console.warn(
-      '[notifications] Electron API нет — нужен полный перезапуск (Cmd+Q)',
-    )
-  }
 
   const maybeNotify = async (event: MatrixEvent, room: Room | undefined) => {
     if (!armed || !room) return
@@ -246,6 +251,8 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
       type === 'm.room.message' ||
       type === 'm.sticker' ||
       type === 'm.room.encrypted' ||
+      type === 'org.matrix.msc3381.poll.start' ||
+      type === 'm.poll.start' ||
       event.isDecryptionFailure()
     if (!isMsg) return
 
@@ -294,7 +301,7 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
       ? notificationBody(event)
       : `${sender}: ${notificationBody(event)}`
 
-    await showDesktopNotification({
+    showDesktopNotification({
       title,
       body,
       roomId: room.roomId,
@@ -342,6 +349,7 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
 
   return () => {
     window.clearTimeout(armTimer)
+    unbindPushRules()
     client.removeListener(RoomEvent.Timeline, onTimeline)
     client.removeListener(RoomEvent.UnreadNotifications, onUnread)
     client.removeListener(ClientEvent.Sync, onSync)

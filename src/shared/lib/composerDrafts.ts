@@ -19,6 +19,36 @@ type PersistedDraft = {
 
 const STORAGE_KEY = 'matrix-macos-composer-drafts'
 
+/**
+ * Mentions alone (no text, no files) are NOT a real draft — they left ghost
+ * "Черновик" rows in the sidebar after the user deleted the typed @mention.
+ */
+function isDraftEmpty(d: {
+  text?: string
+  mentionUserIds?: string[]
+  files?: File[]
+}): boolean {
+  return !(d.text ?? '').trim() && !(d.files?.length)
+}
+
+function normalizeMentionsForText(
+  text: string,
+  mentionUserIds: string[],
+): string[] {
+  if (!text.trim()) return []
+  if (!mentionUserIds.length) return []
+  // Keep ids only while composer still has an @ token (localpart or full mxid-ish).
+  return mentionUserIds.filter((id) => {
+    const local = id.split(':')[0]?.replace(/^@/, '') || ''
+    if (!local) return false
+    return (
+      text.includes(`@${local}`) ||
+      text.includes(id) ||
+      text.includes(`@${id}`)
+    )
+  })
+}
+
 // ——— localStorage layer (text + mentions only; files cannot be JSON-encoded) ———
 
 function readTextStore(): Record<string, PersistedDraft> {
@@ -30,19 +60,38 @@ function readTextStore(): Record<string, PersistedDraft> {
       return {}
     }
     const out: Record<string, PersistedDraft> = {}
+    let needsRewrite = false
     for (const [roomId, v] of Object.entries(
       parsed as Record<string, unknown>,
     )) {
       if (!v || typeof v !== 'object') continue
       const row = v as Partial<PersistedDraft>
       if (typeof row.text !== 'string') continue
+      const text = row.text
+      const mentionUserIds = Array.isArray(row.mentionUserIds)
+        ? row.mentionUserIds.filter((id): id is string => typeof id === 'string')
+        : []
+      const normalizedMentions = normalizeMentionsForText(text, mentionUserIds)
+      // Drop ghost mention-only / whitespace-only rows
+      if (!text.trim()) {
+        needsRewrite = true
+        continue
+      }
+      if (normalizedMentions.length !== mentionUserIds.length) {
+        needsRewrite = true
+      }
       out[roomId] = {
-        text: row.text,
-        mentionUserIds: Array.isArray(row.mentionUserIds)
-          ? row.mentionUserIds.filter((id): id is string => typeof id === 'string')
-          : [],
+        text,
+        mentionUserIds: normalizedMentions,
         updatedAt:
           typeof row.updatedAt === 'number' ? row.updatedAt : Date.now(),
+      }
+    }
+    if (needsRewrite) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(out))
+      } catch {
+        /* ignore */
       }
     }
     return out
@@ -53,14 +102,122 @@ function readTextStore(): Record<string, PersistedDraft> {
 
 function writeTextStore(next: Record<string, PersistedDraft>): void {
   try {
-    // Drop empty drafts to keep storage small
     const pruned: Record<string, PersistedDraft> = {}
     for (const [id, d] of Object.entries(next)) {
-      if (d.text.trim() || d.mentionUserIds.length) pruned[id] = d
+      if (!d.text.trim()) continue
+      pruned[id] = {
+        text: d.text,
+        mentionUserIds: normalizeMentionsForText(d.text, d.mentionUserIds),
+        updatedAt: d.updatedAt,
+      }
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(pruned))
   } catch {
     /* quota / private mode */
+  }
+}
+
+/** Read persisted text draft for a room (localStorage source of truth). */
+export function readPersistedComposerDraft(
+  roomId: string,
+): PersistedDraft | null {
+  if (!roomId) return null
+  return readTextStore()[roomId] ?? null
+}
+
+/**
+ * Merge in-memory (files) + localStorage (text) so a wiped map still restores
+ * after reload / empty-save races.
+ */
+export function getComposerDraft(roomId: string): ComposerDraft | null {
+  if (!roomId) return null
+  const live = useComposerDraftsStore.getState().map[roomId]
+  const persisted = readTextStore()[roomId]
+  if (!live && !persisted) return null
+
+  const text =
+    live?.text?.trim()
+      ? live.text
+      : (persisted?.text ?? live?.text ?? '')
+  const mentionUserIds = normalizeMentionsForText(
+    text,
+    live?.mentionUserIds?.length
+      ? live.mentionUserIds
+      : (persisted?.mentionUserIds ?? live?.mentionUserIds ?? []),
+  )
+  const files = live?.files ?? []
+  const updatedAt = Math.max(
+    live?.updatedAt ?? 0,
+    persisted?.updatedAt ?? 0,
+  )
+
+  if (isDraftEmpty({ text, mentionUserIds, files })) return null
+  return { text, mentionUserIds, files, updatedAt }
+}
+
+/** If map lost a draft that still lives in localStorage, put it back. */
+export function rehydrateComposerDraft(roomId: string): ComposerDraft | null {
+  if (!roomId) return null
+  const draft = getComposerDraft(roomId)
+  const live = useComposerDraftsStore.getState().map[roomId]
+
+  // Ghost map entries (mentions-only / empty) — drop them
+  if (!draft) {
+    if (live && isDraftEmpty(live)) {
+      useComposerDraftsStore.getState().clear(roomId)
+    } else if (live && !(live.text ?? '').trim() && !(live.files?.length)) {
+      useComposerDraftsStore.getState().clear(roomId)
+    }
+    return null
+  }
+
+  if (
+    !live ||
+    isDraftEmpty(live) ||
+    (!(live.text ?? '').trim() && (draft.text ?? '').trim())
+  ) {
+    useComposerDraftsStore.setState((s) => ({
+      map: {
+        ...s.map,
+        [roomId]: {
+          text: draft.text,
+          mentionUserIds: draft.mentionUserIds,
+          files: live?.files?.length ? live.files : draft.files,
+          updatedAt: draft.updatedAt,
+        },
+      },
+      rev: s.rev + 1,
+    }))
+  }
+  return getComposerDraft(roomId)
+}
+
+/** One-shot: purge mention-only ghosts from map + localStorage. */
+export function pruneGhostComposerDrafts(): void {
+  const persisted = readTextStore() // already rewrites LS without ghosts
+  const map = useComposerDraftsStore.getState().map
+  const nextMap = { ...map }
+  let changed = false
+  for (const [roomId, d] of Object.entries(map)) {
+    if (isDraftEmpty(d)) {
+      delete nextMap[roomId]
+      changed = true
+      continue
+    }
+    // Drop map ghosts that aren't in cleaned LS and have no files
+    if (!(d.text ?? '').trim() && !(d.files?.length)) {
+      delete nextMap[roomId]
+      changed = true
+    } else if (!(roomId in persisted) && !(d.files?.length) && !(d.text ?? '').trim()) {
+      delete nextMap[roomId]
+      changed = true
+    }
+  }
+  if (changed) {
+    useComposerDraftsStore.setState((s) => ({
+      map: nextMap,
+      rev: s.rev + 1,
+    }))
   }
 }
 
@@ -82,14 +239,14 @@ type DraftsState = {
   clear: (roomId: string) => void
 }
 
-/** Seed the map once at import time so drafts appear without an explicit hydrate call. */
 function initialMap(): Record<string, ComposerDraft> {
   const persisted = readTextStore()
   const map: Record<string, ComposerDraft> = {}
   for (const [roomId, d] of Object.entries(persisted)) {
+    if (isDraftEmpty(d)) continue
     map[roomId] = {
       text: d.text,
-      mentionUserIds: d.mentionUserIds,
+      mentionUserIds: normalizeMentionsForText(d.text, d.mentionUserIds),
       files: [],
       updatedAt: d.updatedAt,
     }
@@ -103,24 +260,26 @@ export const useComposerDraftsStore = create<DraftsState>((set, get) => ({
   save: (roomId, draft) => {
     if (!roomId) return
     const text = draft.text ?? ''
-    const mentionUserIds = draft.mentionUserIds ?? []
     const files = draft.files ?? []
+    const mentionUserIds = normalizeMentionsForText(
+      text,
+      draft.mentionUserIds ?? [],
+    )
 
-    if (!text.trim() && mentionUserIds.length === 0 && files.length === 0) {
+    if (isDraftEmpty({ text, mentionUserIds, files })) {
       get().clear(roomId)
       return
     }
 
-    // 1) Persist text + mentions to localStorage (files cannot survive reload)
     const persisted = readTextStore()
-    if (text.trim() || mentionUserIds.length > 0) {
+    if (text.trim()) {
       persisted[roomId] = { text, mentionUserIds, updatedAt: Date.now() }
     } else {
+      // File-only: keep out of localStorage but stay in the reactive map
       delete persisted[roomId]
     }
     writeTextStore(persisted)
 
-    // 2) Update reactive map (includes session-only files)
     const now = Date.now()
     const nextMap = { ...get().map }
     nextMap[roomId] = { text, mentionUserIds, files, updatedAt: now }
@@ -130,34 +289,32 @@ export const useComposerDraftsStore = create<DraftsState>((set, get) => ({
     if (!roomId) return
     const cur = get().map[roomId]
     const persisted = readTextStore()
-    let changed = false
+    let mapChanged = false
+    let lsChanged = false
 
     if (roomId in persisted) {
       const nextPersisted = { ...persisted }
       delete nextPersisted[roomId]
       writeTextStore(nextPersisted)
-      changed = true
+      lsChanged = true
     }
 
     if (cur) {
       const nextMap = { ...get().map }
       delete nextMap[roomId]
       set({ map: nextMap, rev: get().rev + 1 })
-      changed = true
+      mapChanged = true
     }
 
-    void changed
+    if (lsChanged && !mapChanged) {
+      set({ rev: get().rev + 1 })
+    }
   },
 }))
 
-// ——— Backwards-compatible helpers ———
-
-/** Read a draft synchronously (reflects latest in-memory state, incl. files). */
+/** Read a draft synchronously (map + localStorage). */
 export function loadComposerDraft(roomId: string): ComposerDraft | null {
-  if (!roomId) return null
-  const d = useComposerDraftsStore.getState().map[roomId]
-  if (!d) return null
-  return { ...d }
+  return getComposerDraft(roomId)
 }
 
 /** Save a draft (reactive — updates the sidebar). */
@@ -176,3 +333,6 @@ export function saveComposerDraft(
 export function clearComposerDraft(roomId: string): void {
   useComposerDraftsStore.getState().clear(roomId)
 }
+
+// Purge legacy mention-only ghosts as soon as this module loads
+pruneGhostComposerDrafts()

@@ -11,15 +11,37 @@ const pkg = JSON.parse(
 ) as { version?: string }
 
 /** Vite 8 emits ESM even with format:cjs — ship a hand-written CJS preload instead. */
-function copyElectronPreload(): Plugin {
-  const src = path.resolve(__dirname, 'electron/preload.cjs')
-  const dest = path.resolve(__dirname, 'dist-electron/preload.cjs')
+function copyElectronAssets(): Plugin {
+  const copies = [
+    {
+      src: path.resolve(__dirname, 'electron/preload.cjs'),
+      dest: path.resolve(__dirname, 'dist-electron/preload.cjs'),
+    },
+    {
+      src: path.resolve(__dirname, 'electron/trayTemplate.png'),
+      dest: path.resolve(__dirname, 'dist-electron/trayTemplate.png'),
+    },
+    {
+      src: path.resolve(__dirname, 'electron/trayTemplate@2x.png'),
+      dest: path.resolve(__dirname, 'dist-electron/trayTemplate@2x.png'),
+    },
+    {
+      src: path.resolve(__dirname, 'electron/icon.png'),
+      dest: path.resolve(__dirname, 'dist-electron/icon.png'),
+    },
+  ]
   const copy = () => {
-    mkdirSync(path.dirname(dest), { recursive: true })
-    copyFileSync(src, dest)
+    for (const { src, dest } of copies) {
+      try {
+        mkdirSync(path.dirname(dest), { recursive: true })
+        copyFileSync(src, dest)
+      } catch (err) {
+        console.warn('[vite] skip electron asset copy', src, err)
+      }
+    }
   }
   return {
-    name: 'copy-electron-preload-cjs',
+    name: 'copy-electron-assets',
     buildStart() {
       copy()
     },
@@ -60,13 +82,13 @@ export default defineConfig({
     }),
     tailwindcss(),
     react(),
-    copyElectronPreload(),
+    copyElectronAssets(),
     electron([
       {
         // Main-Process entry file of the Electron App.
         entry: 'electron/main.ts',
         vite: {
-          plugins: [copyElectronPreload()],
+          plugins: [copyElectronAssets()],
         },
       },
       // Preload is electron/preload.cjs (copied to dist-electron) — do not Vite-bundle it.

@@ -1,4 +1,4 @@
-import { Search, Users } from 'lucide-react'
+import { Phone, Search, Users, Video } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { Room } from 'matrix-js-sdk'
 
@@ -12,6 +12,14 @@ type ChatHeaderProps = {
   showDecrypt?: boolean
   /** e.g. "печатает…" / "Аня и ещё 2 печатают" */
   typingLabel?: string | null
+  /** Presence / last-seen for DMs when not typing */
+  statusLabel?: string | null
+  /** Native 1:1 call (DM) or Element Call (groups) */
+  onVoiceCall?: () => void
+  onVideoCall?: () => void
+  /** MatrixRTC session active in this room */
+  callActive?: boolean
+  callBusy?: boolean
 }
 
 export function ChatHeader({
@@ -22,9 +30,16 @@ export function ChatHeader({
   onOpenProfile,
   showDecrypt = false,
   typingLabel = null,
+  statusLabel = null,
+  onVoiceCall,
+  onVideoCall,
+  callActive = false,
+  callBusy = false,
 }: ChatHeaderProps) {
   const memberCount = room.getJoinedMemberCount()
   const isGroup = memberCount > 2
+  const subtitle =
+    typingLabel || statusLabel || (isGroup ? `${memberCount} участников` : null)
 
   return (
     <div className="h-12 px-4 flex items-center gap-3">
@@ -37,24 +52,74 @@ export function ChatHeader({
         <div className="tg-title text-[15px] font-semibold truncate leading-tight">
           {room.name || 'Чат'}
         </div>
-        {(typingLabel || isGroup) && (
+        {subtitle && (
           <div
             className={clsx(
               'text-[11px] truncate leading-tight mt-0.5',
-              !typingLabel && 'tg-muted',
+              !(
+                typingLabel ||
+                statusLabel === 'в сети' ||
+                statusLabel === 'отошёл'
+              ) && 'tg-muted',
             )}
             style={
-              typingLabel
+              typingLabel ||
+              statusLabel === 'в сети' ||
+              statusLabel === 'отошёл'
                 ? { color: 'var(--accent-fg)' }
                 : undefined
             }
           >
-            {typingLabel || `${memberCount} участников`}
+            {subtitle}
           </div>
         )}
       </button>
 
       <div className="flex items-center gap-2 shrink-0">
+        {callActive && (
+          <span
+            className="h-7 px-2.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 border border-hairline"
+            style={{
+              color: 'var(--accent-fg)',
+              background:
+                'color-mix(in srgb, var(--accent-fg) 12%, transparent)',
+            }}
+            title="В комнате идёт звонок"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            В звонке
+          </span>
+        )}
+
+        {onVoiceCall && (
+          <button
+            type="button"
+            onClick={onVoiceCall}
+            disabled={callBusy}
+            className="tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-ui disabled:opacity-40"
+            title={
+              isGroup
+                ? 'Групповой звонок (Element Call)'
+                : 'Аудиозвонок'
+            }
+            aria-label={isGroup ? 'Групповой звонок' : 'Аудиозвонок'}
+          >
+            <Phone className="w-4 h-4" strokeWidth={2} />
+          </button>
+        )}
+        {onVideoCall && !isGroup && (
+          <button
+            type="button"
+            onClick={onVideoCall}
+            disabled={callBusy}
+            className="tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-ui disabled:opacity-40"
+            title="Видеозвонок"
+            aria-label="Видеозвонок"
+          >
+            <Video className="w-4 h-4" strokeWidth={2} />
+          </button>
+        )}
+
         {isGroup && (
           <button
             type="button"

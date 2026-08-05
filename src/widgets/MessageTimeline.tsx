@@ -9,11 +9,13 @@ import React, {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   findMsgDomEl,
   findTimelineRowIndex as findRowIndexInRows,
   type JumpToEventOptions,
 } from '@/shared/lib/timelineJump'
+import { attachChatGestures, CHAT_GESTURES_REV } from '@/shared/lib/chatGestures'
 import {
   useRoomStore,
 } from '@/entities/session/model/room.store'
@@ -28,8 +30,11 @@ import {
   RoomEvent,
   RoomMemberEvent,
   RoomStateEvent,
+  ThreadEvent,
   TimelineWindow,
+  UserEvent,
   type Room,
+  type User,
 } from 'matrix-js-sdk'
 import { format, isSameDay, isToday, isYesterday, startOfDay } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -39,12 +44,18 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronUp,
+  Download,
+  Eye,
   Forward,
   Loader2,
   Pencil,
+  Phone,
+  PhoneMissed,
+  PhoneOff,
   Reply,
   Search,
   Smile,
+  Video,
   X,
 } from 'lucide-react'
 import {
@@ -68,7 +79,13 @@ import { matrixService } from '@/shared/api/MatrixService'
 import { MessageBody } from '@/shared/ui/MessageBody'
 import { MessageMarkdown } from '@/shared/ui/MessageMarkdown'
 import { TwemojiImg } from '@/shared/ui/twemoji'
+import { copyTextToClipboard } from '@/shared/lib/clipboard'
 import { MessageContextMenu } from '@/shared/ui/MessageContextMenu'
+import { FilePreviewModal } from '@/widgets/FilePreviewModal'
+import {
+  detectFilePreviewKind,
+  formatFileSize,
+} from '@/shared/lib/filePreview'
 import { ReadByAvatars, DeliveryTicksButton } from '@/shared/ui/ReadByAvatars'
 import {
   getOwnDeliveryStatus,
@@ -94,7 +111,6 @@ import {
   type PendingMention,
   type ReplyTarget,
 } from './MessageInput'
-import { openOrCreateDirectChat } from '@/shared/lib/openDm'
 import { useVerificationUiStore } from '@/shared/lib/verificationUi'
 import {
   canPinMessages,
@@ -114,8 +130,46 @@ import {
   usePersonalPinnedStore,
 } from '@/shared/lib/personalPinnedMessages'
 import { ChatHeader, formatTypingLabel } from './ChatHeader'
+import { MentionUserCard } from './MentionUserCard'
+import {
+  formatPresenceLabel,
+  getDmPeerUserId,
+} from '@/shared/lib/presenceLabel'
+import {
+  searchRoomEventsServer,
+  type RoomSearchHit,
+} from '@/shared/lib/roomSearch'
+import {
+  canModerateMember,
+  formatModerationError,
+} from '@/shared/lib/roomModeration'
+import { mentionComposerLabel, type MentionClickAnchor, type MentionUserClickHandler } from '@/shared/lib/mentions'
+import { isPollStartEvent, isPollMessageEvent, pollNotificationSnippet } from '@/shared/lib/polls'
+import { isThreadReplyEvent, getThreadReplyCount, hasThreadReplies } from '@/shared/lib/threads'
+import {
+  buildCallHistoryMap,
+  callHistoryLabel,
+  formatCallDuration,
+  isCallLifecycleEvent,
+  isTerminalCall,
+  type CallHistorySummary,
+} from '@/shared/lib/callTimeline'
+import {
+  buildElementCallUrl,
+  isCallLineBusy,
+  isNativeCallRoom,
+  roomHasActiveMatrixRtc,
+  useCallStore,
+} from '@/shared/lib/calls'
+import {
+  AdminConfirmDialog,
+  type AdminConfirmAction,
+  type AdminConfirmTarget,
+} from '@/shared/ui/AdminConfirmDialog'
 import { PinnedMessageBar } from './PinnedMessageBar'
 import { RoomProfileModal } from './RoomProfileModal'
+import { ThreadPanel } from './ThreadPanel'
+import { PollCard } from './PollCard'
 import { ImageViewer, type ViewerImage } from './ImageViewer'
 import { VideoViewer, type ViewerVideo } from './VideoViewer'
 import { formatBytes } from '@/shared/lib/stickersStore'
@@ -205,6 +259,47 @@ function UnreadSeparator() {
       <span className="tg-unread-sep-line" />
       <span className="tg-unread-sep-label">Непрочитанные</span>
       <span className="tg-unread-sep-line" />
+    </div>
+  )
+}
+
+function CallHistoryTile({ summary }: { summary: CallHistorySummary }) {
+  const emphasis =
+    summary.status === 'missed' ||
+    summary.status === 'rejected' ||
+    summary.status === 'failed' ||
+    summary.status === 'no_answer' ||
+    summary.status === 'cancelled'
+  const label = callHistoryLabel(summary)
+  const ts = summary.anchorEvent.getTs()
+  const Icon =
+    summary.status === 'missed' || summary.status === 'no_answer'
+      ? PhoneMissed
+      : summary.status === 'rejected' || summary.status === 'cancelled'
+        ? PhoneOff
+        : summary.isVideo
+          ? Video
+          : Phone
+
+  return (
+    <div
+      className={clsx('tg-call-tile', emphasis && 'tg-call-tile--missed')}
+      role="status"
+    >
+      <div className="tg-call-tile-inner">
+        <Icon className="tg-call-tile-icon" strokeWidth={2} aria-hidden />
+        <span className="tg-call-tile-label">{label}</span>
+        {summary.status === 'completed' &&
+          summary.durationMs != null &&
+          summary.durationMs > 0 && (
+            <span className="tg-call-tile-duration tabular-nums">
+              {formatCallDuration(summary.durationMs)}
+            </span>
+          )}
+        <span className="tg-call-tile-time tabular-nums">
+          {format(ts, 'HH:mm')}
+        </span>
+      </div>
     </div>
   )
 }
@@ -324,6 +419,26 @@ const VideoOpenContext = createContext<OpenVideoFn | null>(null)
 const TimelineScrollContext =
   createContext<React.RefObject<HTMLDivElement | null> | null>(null)
 
+/** Soft DOM budget for the live timeline (historical TimelineWindow is already windowed). */
+const MAX_LIVE_TIMELINE_EVENTS = 400
+/** Dropdown rows — full hit count lives in a ref for ↑↓ navigation. */
+const SEARCH_DROPDOWN_LIMIT = 60
+/** Cap navigable hits to keep jump list bounded in huge rooms. */
+const SEARCH_HIT_CAP = 500
+/**
+ * Background scrollback while searching (SDK only — UI stays frozen).
+ * Always runs after server search: HS search is incomplete (tokenization,
+ * edits, media captions) and must be paired with a local pass.
+ */
+const SEARCH_SCROLLBACK_PAGES = 60
+const SEARCH_SCROLLBACK_SIZE = 100
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
+}
+
 function useOpenImage() {
   return useContext(ImageOpenContext)
 }
@@ -332,11 +447,48 @@ function useOpenVideo() {
   return useContext(VideoOpenContext)
 }
 
-/** Load media when the row mounts (virtual list unmounts off-screen rows). */
-function useNearViewport(_rootMargin = '200px') {
-  const ref = useRef<HTMLDivElement | null>(null)
-  // Virtualized rows only exist near the viewport — start loading immediately.
-  return { ref, near: true as const }
+/**
+ * Lazy-load media only when the tile is near the timeline viewport.
+ * (Native flat list keeps all rows mounted — without this every MXC downloads.)
+ */
+function useNearViewport(rootMargin = '500px') {
+  const scrollCtx = useContext(TimelineScrollContext)
+  const [node, setNode] = useState<HTMLDivElement | null>(null)
+  const [near, setNear] = useState(false)
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    setNode(el)
+  }, [])
+
+  useEffect(() => {
+    if (!node) {
+      setNear(false)
+      return
+    }
+
+    const root = scrollCtx?.current ?? null
+    // If the scroll root is not ready yet, treat as near so first paint still works.
+    if (!root) {
+      setNear(true)
+      return
+    }
+
+    let cancelled = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (cancelled) return
+        const hit = entries.find((e) => e.target === node)
+        if (hit) setNear(hit.isIntersecting)
+      },
+      { root, rootMargin, threshold: 0 },
+    )
+    io.observe(node)
+    return () => {
+      cancelled = true
+      io.disconnect()
+    }
+  }, [node, scrollCtx, rootMargin])
+
+  return { ref, near }
 }
 
 function getSenderName(event: MatrixEvent): string {
@@ -363,16 +515,20 @@ function messagePlainText(event: MatrixEvent): string {
 
 function canEditEvent(event: MatrixEvent, isOwn: boolean): boolean {
   if (!isOwn || event.isDecryptionFailure() || event.isRedacted()) return false
+  // Polls are stored as m.text + poll payload — not editable via replace.
+  if (isPollMessageEvent(event)) return false
   const msgtype = event.getContent()?.msgtype
   return msgtype === 'm.text' || msgtype === 'm.emote'
 }
 
-/** Events that belong in the chat timeline (not reactions / edits) */
+/** Events that belong in the chat timeline (not reactions / edits / thread replies) */
 function isTimelineMessageEvent(e: MatrixEvent): boolean {
   if (e.getType() === EventType.Reaction) return false
   // Prefer SDK helpers — covers wire content for E2EE
   if (e.isRelation?.(RelationType.Annotation)) return false
   if (e.isRelation?.(RelationType.Replace)) return false
+  // Thread replies live in the thread panel, not the main timeline
+  if (isThreadReplyEvent(e)) return false
   const relation = e.getRelation?.()
   if (
     relation?.rel_type === RelationType.Replace ||
@@ -380,10 +536,29 @@ function isTimelineMessageEvent(e: MatrixEvent): boolean {
   ) {
     return false
   }
+  // Poll votes / end are relations — don't render as bubbles
+  if (
+    relation?.rel_type === 'm.reference' ||
+    relation?.rel_type === RelationType.Reference
+  ) {
+    const t = e.getType()
+    if (
+      t === 'org.matrix.msc3381.poll.response' ||
+      t === 'm.poll.response' ||
+      t === 'org.matrix.msc3381.poll.end' ||
+      t === 'm.poll.end'
+    ) {
+      return false
+    }
+  }
+  const type = e.getType()
   return (
-    e.getType() === 'm.room.message' ||
-    e.getType() === 'm.sticker' ||
-    e.getType() === 'm.room.encrypted' ||
+    type === 'm.room.message' ||
+    type === 'm.sticker' ||
+    type === 'm.room.encrypted' ||
+    type === 'org.matrix.msc3381.poll.start' ||
+    type === 'm.poll.start' ||
+    isCallLifecycleEvent(e) ||
     e.isDecryptionFailure()
   )
 }
@@ -488,7 +663,11 @@ function useAttachmentObjectUrl(
   const cacheKey = mxcUrl ? `${mode}:${mxcUrl}|${fallbackMime}` : null
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) {
+      setObjectUrl(null)
+      setError(false)
+      return
+    }
     if (!client || !preview || !cacheKey) {
       setObjectUrl(null)
       setError(false)
@@ -534,6 +713,8 @@ function useAttachmentObjectUrl(
     return () => {
       cancelled = true
       releaseOnce()
+      // Drop React URL when leaving the near-zone so far-away tiles free memory.
+      setObjectUrl(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, cacheKey, fallbackMime, enabled, mode])
@@ -649,7 +830,7 @@ const MediaImage: React.FC<{
         className="w-full h-full min-h-[200px] rounded-lg bg-gray-800/20"
       >
         {error ? (
-          <div className="text-[13px] text-white/50 p-2">
+          <div className="text-[13px] text-ink-muted p-2">
             Не удалось загрузить {isSticker ? 'стикер' : 'фото'}
           </div>
         ) : !objectUrl ? (
@@ -691,7 +872,7 @@ const MediaImage: React.FC<{
       }}
     >
       {error ? (
-        <div className="absolute inset-0 flex items-center text-[13px] text-white/50 p-2">
+        <div className="absolute inset-0 flex items-center text-[13px] text-ink-muted p-2">
           Не удалось загрузить {isSticker ? 'стикер' : 'фото'}
         </div>
       ) : !objectUrl ? (
@@ -769,7 +950,7 @@ const MediaVideo: React.FC<{
         ) : (
           <div className="tg-video-thumb-fallback absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3">
             <span className="text-[28px] leading-none opacity-80">🎬</span>
-            <span className="text-[12px] text-white/70 truncate max-w-full">
+            <span className="text-[12px] text-ink-muted truncate max-w-full">
               {content.body || 'Видео'}
             </span>
           </div>
@@ -848,18 +1029,18 @@ const MediaAudio: React.FC<{ content: any }> = memo(function MediaAudio({
       className="tg-audio flex items-center gap-2.5 min-w-[220px] max-w-[280px] py-0.5"
     >
       {error ? (
-        <div className="text-[13px] text-white/50">
+        <div className="text-[13px] text-ink-muted">
           Не удалось загрузить голосовое
         </div>
       ) : !objectUrl ? (
-        <div className="h-10 w-full rounded-lg bg-white/10 animate-pulse" />
+        <div className="h-10 w-full rounded-lg bg-surface-inset animate-pulse" />
       ) : (
         <>
           <audio ref={audioRef} src={objectUrl} preload="metadata" className="hidden" />
           <button
             type="button"
             onClick={toggle}
-            className="tg-audio-play shrink-0 w-9 h-9 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 transition-colors"
+            className="tg-audio-play shrink-0 w-9 h-9 rounded-full flex items-center justify-center bg-surface-inset hover:bg-surface-inset transition-colors"
             aria-label={playing ? 'Пауза' : 'Слушать'}
           >
             {playing ? (
@@ -872,13 +1053,13 @@ const MediaAudio: React.FC<{ content: any }> = memo(function MediaAudio({
             )}
           </button>
           <div className="flex-1 min-w-0 flex flex-col gap-1">
-            <div className="tg-audio-track h-1.5 rounded-full bg-white/15 overflow-hidden">
+            <div className="tg-audio-track h-1.5 rounded-full bg-surface-inset overflow-hidden">
               <div
-                className="h-full rounded-full bg-white/70 transition-[width] duration-100"
+                className="h-full rounded-full tg-audio-progress transition-[width] duration-100"
                 style={{ width: `${Math.round(progress * 100)}%` }}
               />
             </div>
-            <div className="flex justify-between text-[11px] text-white/55 tabular-nums">
+            <div className="flex justify-between text-[11px] text-ink-muted tabular-nums">
               <span>{currentLabel}</span>
               <span>{durationLabel || 'Голосовое'}</span>
             </div>
@@ -889,7 +1070,11 @@ const MediaAudio: React.FC<{ content: any }> = memo(function MediaAudio({
   )
 })
 
-const MediaFile: React.FC<{ content: any }> = ({ content }) => {
+const MediaFile: React.FC<{
+  content: any
+  members?: { userId: string; displayName: string }[]
+  onUserClick?: MentionUserClickHandler
+}> = ({ content, members, onUserClick }) => {
   const { ref, near } = useNearViewport()
   const { objectUrl, error } = useAttachmentObjectUrl(
     content,
@@ -899,32 +1084,94 @@ const MediaFile: React.FC<{ content: any }> = ({ content }) => {
     near,
     'full',
   )
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const caption =
+    typeof content[ALBUM_CAPTION_KEY] === 'string'
+      ? (content[ALBUM_CAPTION_KEY] as string).trim()
+      : ''
+  const fileName = content.body || 'Файл'
+  const mime =
+    content.info?.mimetype ||
+    content.file?.mimetype ||
+    'application/octet-stream'
+  const sizeLabel = formatFileSize(content.info?.size)
+  const kind = detectFilePreviewKind(mime, fileName)
+  const canPreview = kind !== 'unsupported'
 
   return (
     <div ref={ref}>
       {error ? (
         <div className="flex items-center gap-2 text-[13px]">
           <span className="opacity-70">📄</span>
-          <span>{content.body || 'Файл'} (ошибка загрузки)</span>
+          <span>
+            {fileName} (ошибка загрузки)
+          </span>
         </div>
       ) : !objectUrl ? (
-        <div className="h-9 w-48 rounded-xl bg-white/10 animate-pulse" />
+        <div className="h-11 w-52 rounded-xl bg-surface-inset animate-pulse" />
       ) : (
-        <a
-          href={objectUrl}
-          download={content.body || 'file'}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2.5 rounded-xl bg-black/15 px-2.5 py-2 no-underline hover:bg-black/25 transition-colors"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-base">
-            📄
-          </span>
-          <span className="text-[13px] text-ink underline-offset-2 hover:underline truncate max-w-[200px]">
-            {content.body || 'Файл'}
-          </span>
-        </a>
+        <div className="flex items-stretch gap-0.5 rounded-xl bg-black/15 overflow-hidden max-w-[min(100%,280px)]">
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left hover:bg-black/20 transition-colors"
+            title={canPreview ? 'Открыть предпросмотр' : 'Открыть файл'}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-inset text-base">
+              📄
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-ink leading-tight">
+                {fileName}
+              </span>
+              <span className="block truncate text-[11px] text-ink-muted mt-0.5 leading-tight">
+                {canPreview
+                  ? ['Нажмите для просмотра', sizeLabel]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : sizeLabel || 'Скачать файл'}
+              </span>
+            </span>
+          </button>
+          <div className="flex flex-col border-l border-white/10 shrink-0">
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="flex flex-1 w-9 items-center justify-center text-ink-muted hover:text-ink hover:bg-black/20 transition-colors"
+              title="Просмотр"
+              aria-label="Просмотр"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+            <a
+              href={objectUrl}
+              download={fileName}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 w-9 items-center justify-center border-t border-white/10 text-ink-muted hover:text-ink hover:bg-black/20 transition-colors"
+              title="Скачать"
+              aria-label="Скачать"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </div>
       )}
+      {caption ? (
+        <div className="px-0.5 pt-1.5">
+          <MessageMarkdown
+            text={caption}
+            members={members}
+            onUserClick={onUserClick}
+          />
+        </div>
+      ) : null}
+      <FilePreviewModal
+        open={previewOpen}
+        content={previewOpen ? content : null}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   )
 }
@@ -938,6 +1185,7 @@ type TimelineItem =
       caption?: string
       albumId?: string
     }
+  | { kind: 'call'; summary: CallHistorySummary }
 
 type TimelineRow = {
   key: string
@@ -949,14 +1197,49 @@ type TimelineRow = {
   firstEvent: MatrixEvent
 }
 
+function timelineItemFirstEvent(item: TimelineItem): MatrixEvent {
+  if (item.kind === 'album') return item.imageEvents[0]
+  if (item.kind === 'call') return item.summary.firstEvent
+  return item.event
+}
+
 const ALBUM_GAP_MS = 3000
 
-function groupTimelineItems(messages: MatrixEvent[]): TimelineItem[] {
+function groupTimelineItems(
+  messages: MatrixEvent[],
+  myUserId: string,
+): TimelineItem[] {
+  const callMap = buildCallHistoryMap(messages, myUserId)
+  const emittedCalls = new Set<string>()
   const items: TimelineItem[] = []
   let i = 0
 
   while (i < messages.length) {
     const event = messages[i]
+
+    if (isCallLifecycleEvent(event)) {
+      const callId =
+        (event.getContent() as { call_id?: string })?.call_id || null
+      if (!callId || emittedCalls.has(callId)) {
+        i++
+        continue
+      }
+      const summary = callMap.get(callId)
+      if (!summary || !isTerminalCall(summary)) {
+        i++
+        continue
+      }
+      // Place the tile at the first lifecycle event of this call
+      if (event.getId() !== summary.firstEvent.getId()) {
+        i++
+        continue
+      }
+      emittedCalls.add(callId)
+      items.push({ kind: 'call', summary })
+      i++
+      continue
+    }
+
     const albumId = getAlbumId(event)
     const content = event.getContent() as Record<string, unknown>
 
@@ -1053,29 +1336,61 @@ const MessageHoverActions: React.FC<{
   onPickReaction: (emoji: string) => void
 }> = ({ isOwn, onReply, onPickReaction }) => {
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerPos, setPickerPos] = useState<{ left: number; top: number } | null>(
+    null,
+  )
   const wrapRef = useRef<HTMLDivElement>(null)
+  const smileBtnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!pickerOpen) return
-    const onDoc = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setPickerOpen(false)
+    if (!pickerOpen) {
+      setPickerPos(null)
+      return
     }
+    const place = () => {
+      const btn = smileBtnRef.current
+      if (!btn) return
+      const r = btn.getBoundingClientRect()
+      const width = 220
+      const height = 44
+      let left = isOwn ? r.right - width : r.left
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8))
+      let top = r.top - height - 8
+      if (top < 8) top = r.bottom + 8
+      setPickerPos({ left, top })
+    }
+    place()
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (wrapRef.current?.contains(t)) return
+      if (
+        t instanceof Element &&
+        t.closest?.('[data-tg-quick-reactions]')
+      ) {
+        return
+      }
+      setPickerOpen(false)
+    }
+    window.addEventListener('resize', place)
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [pickerOpen])
+    return () => {
+      window.removeEventListener('resize', place)
+      document.removeEventListener('mousedown', onDoc)
+    }
+  }, [pickerOpen, isOwn])
 
   return (
     <div
       ref={wrapRef}
       className={clsx(
-        'tg-msg-actions absolute top-0 z-20 flex items-center gap-0.5 rounded-full bg-[#1a2733]/95 border border-white/10 shadow-lg px-0.5 py-0.5',
+        'tg-msg-actions absolute top-0 z-20 flex items-center gap-0.5 rounded-full bg-[var(--menu-surface-solid)] border border-hairline px-0.5 py-0.5',
         isOwn ? 'tg-msg-actions--out right-full' : 'tg-msg-actions--in left-full',
       )}
     >
       <button
         type="button"
         onClick={onReply}
-        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11.5px] text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-[11.5px] text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
         title="Ответить"
       >
         <Reply className="w-3.5 h-3.5" />
@@ -1083,36 +1398,39 @@ const MessageHoverActions: React.FC<{
       </button>
       <div className="relative">
         <button
+          ref={smileBtnRef}
           type="button"
           onClick={() => setPickerOpen((v) => !v)}
-          className="flex items-center justify-center w-7 h-7 rounded-full text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+          className="flex items-center justify-center w-7 h-7 rounded-full text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
           title="Реакция"
           aria-label="Реакция"
         >
           <Smile className="w-3.5 h-3.5" />
         </button>
-        {pickerOpen && (
-          <div
-            className={clsx(
-              'absolute bottom-full mb-1.5 flex gap-0.5 rounded-2xl bg-[#1a2733] border border-white/12 shadow-xl p-1',
-              isOwn ? 'right-0' : 'left-0',
-            )}
-          >
-            {QUICK_REACTIONS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                className="w-8 h-8 rounded-full text-[16px] hover:bg-white/10 transition-colors inline-flex items-center justify-center"
-                onClick={() => {
-                  setPickerOpen(false)
-                  onPickReaction(emoji)
-                }}
-              >
-                <TwemojiImg emoji={emoji} />
-              </button>
-            ))}
-          </div>
-        )}
+        {pickerOpen &&
+          pickerPos &&
+          createPortal(
+            <div
+              data-tg-quick-reactions
+              className="fixed z-[1000] flex gap-0.5 rounded-2xl bg-[var(--menu-surface-solid)] border border-hairline shadow-xl p-1"
+              style={{ left: pickerPos.left, top: pickerPos.top }}
+            >
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className="w-8 h-8 rounded-full text-[16px] hover:bg-surface-inset transition-colors inline-flex items-center justify-center"
+                  onClick={() => {
+                    setPickerOpen(false)
+                    onPickReaction(emoji)
+                  }}
+                >
+                  <TwemojiImg emoji={emoji} />
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )}
       </div>
     </div>
   )
@@ -1133,12 +1451,21 @@ const ReactionBar: React.FC<{
           className={clsx(
             'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[12px] border transition-colors',
             r.reactedByMe
-              ? 'bg-accent/70 border-accent-hover/40 text-white'
-              : 'bg-black/25 border-white/10 text-white/80 hover:bg-black/40',
+              ? 'bg-accent border-accent/50 text-[var(--color-on-accent)]'
+              : 'bg-surface-inset border-hairline text-ink hover:bg-[var(--control-fill-hover)]',
           )}
         >
           <TwemojiImg emoji={r.key} />
-          <span className="tabular-nums text-white/60">{r.count}</span>
+          <span
+            className={clsx(
+              'tabular-nums font-semibold',
+              r.reactedByMe
+                ? 'text-[var(--color-on-accent)]'
+                : 'text-ink-muted',
+            )}
+          >
+            {r.count}
+          </span>
         </button>
       ))}
     </div>
@@ -1201,7 +1528,7 @@ const ReplyChip: React.FC<{
         </span>
         <span
           className={clsx(
-            'block text-[12.5px] text-white/55 leading-snug',
+            'block text-[12.5px] text-ink-muted leading-snug',
             quoteText ? 'line-clamp-3 whitespace-pre-wrap break-words' : 'truncate',
           )}
         >
@@ -1233,10 +1560,14 @@ type BubbleChromeProps = {
   searchHit?: boolean
   /** No bubble background — for stickers */
   bare?: boolean
-  /** Only one message in the virtual list may show hover chrome at a time */
+  /** Only one message in the list may show hover chrome at a time */
   showHoverActions?: boolean
   onHoverActionsChange?: (eventId: string | null) => void
   onReply: () => void
+  onOpenThread?: () => void
+  threadReplyCount?: number
+  /** Keep chip when only deleted stubs remain (count may be 0). */
+  threadOpenable?: boolean
   onContextMenu?: (e: React.MouseEvent) => void
   onScrollTo: (
     eventId: string,
@@ -1270,6 +1601,9 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
   showHoverActions = false,
   onHoverActionsChange,
   onReply,
+  onOpenThread,
+  threadReplyCount = 0,
+  threadOpenable = false,
   onContextMenu,
   onScrollTo,
   children,
@@ -1313,8 +1647,8 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
     <div
       id={`msg-${eventId}`}
       className={clsx(
-        // No `group` on the full-width row — virtualized rows are 100% wide, so
-        // hovering empty space left of own bubbles would light up the wrong actions.
+        // No `group` on the full-width row — hovering empty space left of own
+        // bubbles would otherwise light up the wrong actions.
         'tg-msg relative flex w-full min-w-0 scroll-mt-8',
         isOwn ? 'justify-end pl-12' : 'justify-start pr-12',
         // Top padding only — bottom spacing lives on .tg-timeline-row
@@ -1377,6 +1711,35 @@ const BubbleChrome: React.FC<BubbleChromeProps> = ({
           )}
         </div>
         <ReactionBar reactions={reactions} onToggle={handleReact} />
+        {onOpenThread && (threadReplyCount > 0 || threadOpenable) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onOpenThread()
+            }}
+            className={clsx(
+              'mt-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1',
+              'text-[12px] font-medium tg-link tg-hover-surface transition-colors duration-ui',
+            )}
+          >
+            {threadReplyCount > 0 ? (
+              <>
+                <span className="tabular-nums">{threadReplyCount}</span>
+                <span>
+                  {threadReplyCount === 1
+                    ? 'ответ'
+                    : threadReplyCount < 5
+                      ? 'ответа'
+                      : 'ответов'}
+                </span>
+              </>
+            ) : (
+              <span>Ветка</span>
+            )}
+          </button>
+        )}
         {showReadStrip && (
           <ReadByAvatars
             client={client}
@@ -1405,6 +1768,7 @@ const AlbumBubble = memo(function AlbumBubble({
   searchHit,
   onToggleSelect,
   onReply,
+  onOpenThread,
   onContextMenu,
   onScrollTo,
   mentionMembers,
@@ -1427,6 +1791,7 @@ const AlbumBubble = memo(function AlbumBubble({
   searchHit?: boolean
   onToggleSelect: (eventId: string) => void
   onReply: (events: MatrixEvent[]) => void
+  onOpenThread?: (event: MatrixEvent) => void
   onContextMenu: (e: React.MouseEvent, events: MatrixEvent[]) => void
   onScrollTo: (
     eventId: string,
@@ -1436,7 +1801,7 @@ const AlbumBubble = memo(function AlbumBubble({
     highlightText?: string,
   ) => void
   mentionMembers: { userId: string; displayName: string }[]
-  onUserClick: (userId: string) => void
+  onUserClick: MentionUserClickHandler
   showHoverActions?: boolean
   onHoverActionsChange?: (eventId: string | null) => void
 }) {
@@ -1452,6 +1817,16 @@ const AlbumBubble = memo(function AlbumBubble({
   const extra = count - visible.length
   const replyParentId = getInReplyToId(root)
   const replyMediaIds = getReplyMediaIds(root)
+  const threadReplyCount = useMemo(
+    () => getThreadReplyCount(room, root),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room, eventId, reactionTick],
+  )
+  const threadOpenable = useMemo(
+    () => hasThreadReplies(room, root),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room, eventId, reactionTick],
+  )
   const delivery = useMemo(
     () => getOwnDeliveryStatus(room, tipEventId, myUserId, isOwn),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1492,6 +1867,9 @@ const AlbumBubble = memo(function AlbumBubble({
       showHoverActions={showHoverActions}
       onHoverActionsChange={onHoverActionsChange}
       onReply={handleAlbumReply}
+      onOpenThread={onOpenThread ? () => onOpenThread(root) : undefined}
+      threadReplyCount={threadReplyCount}
+      threadOpenable={threadOpenable}
       onContextMenu={(e) => onContextMenu(e, item.events)}
       onScrollTo={onScrollTo}
       bubbleClassName="overflow-hidden !p-[2px]"
@@ -1604,10 +1982,13 @@ const MessageBubble = memo(function MessageBubble({
   mentionMembers,
   onUserClick,
   onReply,
+  onOpenThread,
   onContextMenu,
   onScrollTo,
   showHoverActions = false,
   onHoverActionsChange,
+  pollTick = 0,
+  onPollChanged,
 }: {
   event: MatrixEvent
   isOwn: boolean
@@ -1624,8 +2005,9 @@ const MessageBubble = memo(function MessageBubble({
   selected?: boolean
   onToggleSelect?: (eventId: string) => void
   mentionMembers: { userId: string; displayName: string }[]
-  onUserClick: (userId: string) => void
+  onUserClick: MentionUserClickHandler
   onReply: (events: MatrixEvent[]) => void
+  onOpenThread?: (event: MatrixEvent) => void
   onContextMenu: (e: React.MouseEvent, events: MatrixEvent[]) => void
   onScrollTo: (
     eventId: string,
@@ -1636,15 +2018,19 @@ const MessageBubble = memo(function MessageBubble({
   ) => void
   showHoverActions?: boolean
   onHoverActionsChange?: (eventId: string | null) => void
+  pollTick?: number
+  onPollChanged?: () => void
 }) {
   const content = event.getContent() as Record<string, unknown>
   const senderName = getSenderName(event)
   const senderId = event.getSender() || null
   const isStickerEvent = event.getType() === 'm.sticker'
+  const isPoll = isPollStartEvent(event)
   const isPhoto =
     !event.isDecryptionFailure() && content.msgtype === 'm.image'
   const isFlushMedia =
     !isStickerEvent &&
+    !isPoll &&
     !event.isDecryptionFailure() &&
     (isPhoto ||
       content.msgtype === 'm.video' ||
@@ -1652,6 +2038,16 @@ const MessageBubble = memo(function MessageBubble({
   const eventId = event.getId() || ''
   const replyParentId = getInReplyToId(event)
   const replyMediaIds = getReplyMediaIds(event)
+  const threadReplyCount = useMemo(
+    () => getThreadReplyCount(room, event),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room, eventId, reactionTick],
+  )
+  const threadOpenable = useMemo(
+    () => hasThreadReplies(room, event),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room, eventId, reactionTick],
+  )
   const embeddedQuote = useMemo(() => {
     if (!replyParentId) return null
     if (content.msgtype !== 'm.text' && content.msgtype !== 'm.emote') {
@@ -1677,11 +2073,40 @@ const MessageBubble = memo(function MessageBubble({
 
   let messageContent: React.ReactNode
 
-  if (event.isDecryptionFailure()) {
-      messageContent = (
-      <div className="tg-bubble-text tg-decrypt-fail text-[13.5px] italic leading-[1.35]">
+  if (event.isRedacted()) {
+    messageContent = (
+      <div className="tg-bubble-text tg-msg-placeholder text-[13.5px] italic leading-[1.35]">
+        Сообщение удалено
+      </div>
+    )
+  } else if (event.isDecryptionFailure()) {
+    messageContent = (
+      <div className="tg-bubble-text tg-msg-placeholder text-[13.5px] italic leading-[1.35]">
         Не удалось расшифровать
       </div>
+    )
+  } else if (
+    event.getType() === EventType.RoomMessageEncrypted ||
+    event.getType() === 'm.room.encrypted'
+  ) {
+    // Still ciphertext — crypto may be loading or keys missing.
+    // Never return null here: date separators would hang with empty gaps.
+    messageContent = (
+      <div className="tg-bubble-text tg-msg-placeholder text-[13.5px] italic leading-[1.35]">
+        Зашифрованное сообщение
+      </div>
+    )
+  } else if (isPoll && client) {
+    messageContent = (
+      <PollCard
+        event={event}
+        room={room}
+        client={client}
+        myUserId={myUserId}
+        isOwn={isOwn}
+        pollTick={pollTick}
+        onChanged={onPollChanged}
+      />
     )
   } else if (isStickerEvent) {
     messageContent = (
@@ -1754,7 +2179,21 @@ const MessageBubble = memo(function MessageBubble({
         )
         break
       case 'm.audio':
-        messageContent = <MediaAudio content={content} />
+        messageContent = (
+          <div>
+            <MediaAudio content={content} />
+            {typeof (content as any)[ALBUM_CAPTION_KEY] === 'string' &&
+              (content as any)[ALBUM_CAPTION_KEY].trim() && (
+                <div className="px-0.5 pt-1">
+                  <MessageMarkdown
+                    text={(content as any)[ALBUM_CAPTION_KEY]}
+                    members={mentionMembers}
+                    onUserClick={onUserClick}
+                  />
+                </div>
+              )}
+          </div>
+        )
         break
       case 'm.video':
         messageContent = (
@@ -1783,9 +2222,25 @@ const MessageBubble = memo(function MessageBubble({
             className={clsx(isFlash && 'tg-album-cell--flash rounded-xl overflow-hidden')}
           >
             <MediaVideo content={content} videoId={event.getId() || undefined} />
+            {typeof (content as any)[ALBUM_CAPTION_KEY] === 'string' &&
+              (content as any)[ALBUM_CAPTION_KEY].trim() && (
+                <div className="px-0.5 pt-1">
+                  <MessageMarkdown
+                    text={(content as any)[ALBUM_CAPTION_KEY]}
+                    members={mentionMembers}
+                    onUserClick={onUserClick}
+                  />
+                </div>
+              )}
           </div>
         ) : (
-          <MediaFile content={content} />
+          <div id={eventId ? `msg-media-${eventId}` : undefined}>
+            <MediaFile
+              content={content}
+              members={mentionMembers}
+              onUserClick={onUserClick}
+            />
+          </div>
         )
         break
       default:
@@ -1800,7 +2255,16 @@ const MessageBubble = memo(function MessageBubble({
             </div>
           )
         } else {
-          return null
+          // Unknown / empty clear content — keep a visible bubble
+          messageContent = (
+            <div className="tg-bubble-text tg-msg-placeholder text-[13.5px] italic leading-[1.35]">
+              {event.isEncrypted()
+                ? 'Зашифрованное сообщение'
+                : event.isRedacted()
+                  ? 'Сообщение удалено'
+                  : 'Пустое сообщение'}
+            </div>
+          )
         }
     }
   }
@@ -1853,6 +2317,9 @@ const MessageBubble = memo(function MessageBubble({
         showHoverActions={showHoverActions}
         onHoverActionsChange={onHoverActionsChange}
         onReply={() => onReply([event])}
+        onOpenThread={onOpenThread ? () => onOpenThread(event) : undefined}
+        threadReplyCount={threadReplyCount}
+        threadOpenable={threadOpenable}
         onContextMenu={(e) => {
           if (selecting && eventId && onToggleSelect) {
             e.preventDefault()
@@ -1937,15 +2404,28 @@ const MessageBubble = memo(function MessageBubble({
   )
 })
 
-export function MessageTimeline() {
+export function MessageTimeline({
+  onRequestCloseChat,
+}: {
+  onRequestCloseChat?: (fromPx?: number) => void
+} = {}) {
+  const messagesRef = useRef<MatrixEvent[]>([])
   const [messages, setMessages] = useState<MatrixEvent[]>([])
+  messagesRef.current = messages
+
   const [reactionTick, setReactionTick] = useState(0)
+  const [pollTick, setPollTick] = useState(0)
   const [receiptTick, setReceiptTick] = useState(0)
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
   const [pendingMention, setPendingMention] = useState<PendingMention | null>(
     null,
   )
+  const [mentionCard, setMentionCard] = useState<{
+    userId: string
+    visibleLabel?: string
+    anchor: MentionClickAnchor
+  } | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{
     x: number
     y: number
@@ -1960,12 +2440,29 @@ export function MessageTimeline() {
   )
   const [forwardBusy, setForwardBusy] = useState(false)
   const [highlightMediaIds, setHighlightMediaIds] = useState<string[]>([])
+  const [adminConfirm, setAdminConfirm] = useState<{
+    action: AdminConfirmAction
+    target: AdminConfirmTarget
+  } | null>(null)
+  const [adminBusy, setAdminBusy] = useState(false)
+  const [adminError, setAdminError] = useState<string | null>(null)
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchQuery, setChatSearchQuery] = useState('')
   const [searchResultsOpen, setSearchResultsOpen] = useState(false)
   const [searchCursor, setSearchCursor] = useState(-1)
+  /** Monotonic hit list for the current query — never shrinks mid-search. */
+  const [searchResults, setSearchResults] = useState<RoomSearchHit[]>([])
+  const [searchHitCount, setSearchHitCount] = useState(0)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchHitsMapRef = useRef<Map<string, RoomSearchHit>>(new Map())
+  const searchHitsOrderedRef = useRef<RoomSearchHit[]>([])
+  const searchQueryKeyRef = useRef('')
+  const searchPublishTimerRef = useRef<number | null>(null)
+  /** Freeze visible timeline while background search paginates history. */
+  const searchQuietScrollbackRef = useRef(false)
   const [typingNames, setTypingNames] = useState<string[]>([])
   const timelineRef = useRef<HTMLDivElement>(null)
+  const chatShellRef = useRef<HTMLDivElement>(null)
   const chatSearchRef = useRef<HTMLInputElement>(null)
   const searchPanelRef = useRef<HTMLDivElement>(null)
   const [isDecryptModalOpen, setDecryptModalOpen] = useState(false)
@@ -1979,7 +2476,7 @@ export function MessageTimeline() {
   } | null>(null)
   const [showJumpDown, setShowJumpDown] = useState(false)
   const [jumpBadge, setJumpBadge] = useState(0)
-  /** Only one message may mount hover reply/react chrome (virtual rows overlap) */
+  /** Only one message may mount hover reply/react chrome at a time */
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
   const hoverClearTimer = useRef<number | null>(null)
 
@@ -2088,20 +2585,47 @@ export function MessageTimeline() {
   )
   const markRoomAsRead = useRoomStore((state) => state.actions.markRoomAsRead)
   const profileRoomId = useRoomStore((state) => state.profileRoomId)
+  const profileFocusUserId = useRoomStore((state) => state.profileFocusUserId)
+  const threadRootId = useRoomStore((state) => state.threadRootId)
   const openRoomProfile = useRoomStore((state) => state.actions.openRoomProfile)
   const closeRoomProfile = useRoomStore(
     (state) => state.actions.closeRoomProfile,
   )
+  const openThread = useRoomStore((state) => state.actions.openThread)
+  const closeThread = useRoomStore((state) => state.actions.closeThread)
+  const setActiveRoomId = useRoomStore((state) => state.actions.setActiveRoomId)
 
   /** Only apply timeline events if this room is still the active one. */
   const commitTimelineMessages = useCallback(
     (roomId: string, events: MatrixEvent[], epoch?: number) => {
       if (activeRoomIdRef.current !== roomId) return
       if (epoch != null && epoch !== timelineEpochRef.current) return
-      const next = events.filter((e) => {
+      let next = events.filter((e) => {
         const rid = e.getRoomId?.()
         return !rid || rid === roomId
       })
+      // While glued to live end, drop the oldest excess so the flat list
+      // doesn't grow without bound after many scrollback pages.
+      if (
+        !timelineWindowRef.current &&
+        stickToBottom.current &&
+        next.length > MAX_LIVE_TIMELINE_EVENTS
+      ) {
+        next = next.slice(next.length - MAX_LIVE_TIMELINE_EVENTS)
+      }
+      // Background ⌘F scrollback must not rebuild the visible message list
+      // (that was the main search lag). Still allow live appends.
+      if (
+        searchQuietScrollbackRef.current &&
+        !timelineWindowRef.current
+      ) {
+        const prev = messagesRef.current
+        const prevLast = prev[prev.length - 1]?.getId()
+        const nextLast = next[next.length - 1]?.getId()
+        if (prev.length > 0 && prevLast && nextLast === prevLast) {
+          return
+        }
+      }
       setMessages(next)
     },
     [],
@@ -2135,6 +2659,15 @@ export function MessageTimeline() {
   const client = useSessionStore((state) => state.client)
   const myUserId = client?.getUserId() ?? null
   const verifiedTick = useVerificationUiStore((s) => s.verifiedTick)
+  const placeCall = useCallStore((s) => s.actions.placeCall)
+  const callPhase = useCallStore((s) => s.phase)
+  const elementCallOpen = useCallStore((s) => s.elementCallOpen)
+  const setElementCallOpen = useCallStore((s) => s.actions.setElementCallOpen)
+  const callBusy = isCallLineBusy({
+    phase: callPhase,
+    elementCallOpen,
+  })
+  const [rtcTick, setRtcTick] = useState(0)
 
   // Prefer SDK room map — the sidebar `rooms` array can rebuild on sync without
   // the active room briefly disappearing (that used to unmount the timeline).
@@ -2142,6 +2675,97 @@ export function MessageTimeline() {
     (activeRoomId && client?.getRoom(activeRoomId)) ||
     rooms.find((r) => r.roomId === activeRoomId) ||
     undefined
+
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.onElementCallClosed) return
+    const unsub = api.onElementCallClosed(() => setElementCallOpen(false))
+    void api.elementCallIsOpen?.().then((open) => {
+      if (typeof open === 'boolean') setElementCallOpen(open)
+    })
+    return unsub
+  }, [setElementCallOpen])
+
+  useEffect(() => {
+    if (!client?.matrixRTC) return
+    const bump = () => setRtcTick((n) => n + 1)
+    const rtc = client.matrixRTC
+    rtc.on('session_started', bump)
+    rtc.on('session_ended', bump)
+    const t = window.setInterval(bump, 8000)
+    return () => {
+      window.clearInterval(t)
+      rtc.off('session_started', bump)
+      rtc.off('session_ended', bump)
+    }
+  }, [client])
+
+  const matrixRtcActive = useMemo(() => {
+    if (!client || !activeRoom) return false
+    void rtcTick
+    return roomHasActiveMatrixRtc(client, activeRoom.roomId)
+  }, [client, activeRoom, rtcTick])
+
+  const nativeDm = useMemo(
+    () => (activeRoom ? isNativeCallRoom(activeRoom) : false),
+    [activeRoom],
+  )
+
+  const openGroupCall = useCallback(() => {
+    if (!activeRoom) return
+    if (callBusy && !elementCallOpen) {
+      alert('Сначала завершите текущий звонок')
+      return
+    }
+    const hs = client?.getHomeserverUrl?.() || null
+    const url = buildElementCallUrl(activeRoom.roomId, hs)
+    if (window.electronAPI?.openElementCall) {
+      void window.electronAPI.openElementCall(url).then((res) => {
+        if (res && 'ok' in res && res.ok) {
+          setElementCallOpen(true)
+          return
+        }
+        alert(
+          (res && 'reason' in res && res.reason) ||
+            'Не удалось открыть Element Call',
+        )
+      })
+      return
+    }
+    if (window.electronAPI?.openExternal) {
+      void window.electronAPI.openExternal(url)
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }, [
+    activeRoom,
+    callBusy,
+    client,
+    elementCallOpen,
+    setElementCallOpen,
+  ])
+
+  const handleVoiceCall = useCallback(() => {
+    if (!activeRoom) return
+    if (!nativeDm) {
+      openGroupCall()
+      return
+    }
+    void placeCall(activeRoom.roomId, false).catch((err) => {
+      alert(err instanceof Error ? err.message : 'Не удалось начать звонок')
+    })
+  }, [activeRoom, nativeDm, openGroupCall, placeCall])
+
+  const handleVideoCall = useCallback(() => {
+    if (!activeRoom) return
+    if (!nativeDm) {
+      openGroupCall()
+      return
+    }
+    void placeCall(activeRoom.roomId, true).catch((err) => {
+      alert(err instanceof Error ? err.message : 'Не удалось начать видеозвонок')
+    })
+  }, [activeRoom, nativeDm, openGroupCall, placeCall])
 
   const personalPinsHydrate = usePersonalPinnedStore((s) => s.hydrate)
   const personalPinsByUser = usePersonalPinnedStore((s) => s.byUser)
@@ -2186,6 +2810,83 @@ export function MessageTimeline() {
     const isDirect = activeRoom.getJoinedMemberCount() <= 2
     return formatTypingLabel(typingNames, isDirect)
   }, [activeRoom, typingNames])
+
+  const [presenceLabel, setPresenceLabel] = useState<string | null>(null)
+
+  // DM presence / last-seen under the chat title
+  useEffect(() => {
+    if (!client || !activeRoom || !myUserId) {
+      setPresenceLabel(null)
+      return
+    }
+    if (activeRoom.getJoinedMemberCount() > 2) {
+      setPresenceLabel(null)
+      return
+    }
+
+    const peerId = getDmPeerUserId(
+      activeRoom.getJoinedMembers().map((m) => m.userId),
+      myUserId,
+    )
+    // Self-notes / empty peer — no presence line
+    if (!peerId || peerId === myUserId) {
+      setPresenceLabel(null)
+      return
+    }
+
+    let cancelled = false
+    let user: User | null = client.getUser(peerId) ?? null
+
+    const refresh = () => {
+      if (cancelled) return
+      setPresenceLabel(formatPresenceLabel(user))
+    }
+
+    refresh()
+
+    // Seed from server if sync hasn't populated this user yet
+    void client
+      .getPresence(peerId)
+      .then((status) => {
+        if (cancelled) return
+        user = client.getUser(peerId) ?? user
+        if (user && status) {
+          // Apply fields the PUT/GET shape uses when no event was cached
+          if (typeof status.presence === 'string') user.presence = status.presence
+          if (typeof status.currently_active === 'boolean') {
+            user.currentlyActive = status.currently_active
+          }
+          if (typeof status.last_active_ago === 'number') {
+            user.lastActiveAgo = status.last_active_ago
+            user.lastPresenceTs = Date.now()
+          }
+        }
+        refresh()
+      })
+      .catch(() => {
+        /* presence may be disabled on HS */
+      })
+
+    const onPresence = (_ev: MatrixEvent | undefined, u: User) => {
+      if (u.userId !== peerId) return
+      user = u
+      refresh()
+    }
+
+    client.on(UserEvent.Presence, onPresence)
+    client.on(UserEvent.CurrentlyActive, onPresence)
+    client.on(UserEvent.LastPresenceTs, onPresence)
+
+    const tick = window.setInterval(refresh, 60_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(tick)
+      client.removeListener(UserEvent.Presence, onPresence)
+      client.removeListener(UserEvent.CurrentlyActive, onPresence)
+      client.removeListener(UserEvent.LastPresenceTs, onPresence)
+    }
+  }, [client, activeRoom, myUserId, activeRoomId])
 
   // ⌘F / Ctrl+F — search in current chat
   useEffect(() => {
@@ -2243,75 +2944,227 @@ export function MessageTimeline() {
   const highlightSet = useMemo(() => new Set(highlightMediaIds), [highlightMediaIds])
   const chatSearchQ = chatSearchQuery.trim().toLowerCase()
 
-  /** Local search corpus: live timeline ∪ current view (historical window). */
-  const searchCorpus = useMemo(() => {
-    const byId = new Map<string, MatrixEvent>()
-    const add = (events: MatrixEvent[]) => {
+  const flushSearchHits = useCallback((force = false) => {
+    const ordered = Array.from(searchHitsMapRef.current.values())
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, SEARCH_HIT_CAP)
+    searchHitsOrderedRef.current = ordered
+    setSearchHitCount(ordered.length)
+    setSearchResults(ordered.slice(0, SEARCH_DROPDOWN_LIMIT))
+    if (force && searchPublishTimerRef.current != null) {
+      window.clearTimeout(searchPublishTimerRef.current)
+      searchPublishTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleSearchHitsPublish = useCallback(() => {
+    if (searchPublishTimerRef.current != null) return
+    searchPublishTimerRef.current = window.setTimeout(() => {
+      searchPublishTimerRef.current = null
+      flushSearchHits()
+    }, 120)
+  }, [flushSearchHits])
+
+  const resetSearchHits = useCallback(() => {
+    if (searchPublishTimerRef.current != null) {
+      window.clearTimeout(searchPublishTimerRef.current)
+      searchPublishTimerRef.current = null
+    }
+    searchHitsMapRef.current = new Map()
+    searchHitsOrderedRef.current = []
+    setSearchResults([])
+    setSearchHitCount(0)
+    setSearchCursor(-1)
+  }, [])
+
+  /** Add hits for the active query; never drops existing ids. */
+  const mergeSearchHits = useCallback(
+    (hits: RoomSearchHit[], queryKey: string, opts?: { flush?: boolean }) => {
+      if (!queryKey || queryKey !== searchQueryKeyRef.current) return
+      if (searchHitsMapRef.current.size >= SEARCH_HIT_CAP) {
+        let upgraded = false
+        for (const hit of hits) {
+          if (!hit.eventId) continue
+          const prev = searchHitsMapRef.current.get(hit.eventId)
+          if (prev && hit.snippet.length > prev.snippet.length) {
+            searchHitsMapRef.current.set(hit.eventId, { ...prev, ...hit })
+            upgraded = true
+          }
+        }
+        if (upgraded) {
+          if (opts?.flush) flushSearchHits(true)
+          else scheduleSearchHitsPublish()
+        }
+        return
+      }
+      let changed = false
+      for (const hit of hits) {
+        if (!hit.eventId) continue
+        const prev = searchHitsMapRef.current.get(hit.eventId)
+        if (!prev) {
+          if (searchHitsMapRef.current.size >= SEARCH_HIT_CAP) break
+          searchHitsMapRef.current.set(hit.eventId, hit)
+          changed = true
+          continue
+        }
+        if (hit.snippet.length > prev.snippet.length) {
+          searchHitsMapRef.current.set(hit.eventId, { ...prev, ...hit })
+          changed = true
+        }
+      }
+      if (!changed) return
+      if (opts?.flush) flushSearchHits(true)
+      else scheduleSearchHitsPublish()
+    },
+    [flushSearchHits, scheduleSearchHitsPublish],
+  )
+
+  const collectLocalSearchHits = useCallback(
+    (events: MatrixEvent[], query: string): RoomSearchHit[] => {
+      if (!query) return []
+      const out: RoomSearchHit[] = []
       for (const event of events) {
-        const id = event.getId()
-        if (id) byId.set(id, event)
+        if (!isTimelineMessageEvent(event)) continue
+        if (!eventMatchesSearch(event, query)) continue
+        const eventId = event.getId()
+        if (!eventId) continue
+        if (searchHitsMapRef.current.has(eventId)) continue
+        const snippet = (
+          messagePlainText(event) ||
+          messageSnippet(event) ||
+          'Сообщение'
+        ).replace(/\s+/g, ' ')
+        out.push({
+          eventId,
+          senderId: event.getSender() || '',
+          senderName: getSenderName(event),
+          snippet: snippet.length > 120 ? `${snippet.slice(0, 117)}…` : snippet,
+          ts: event.getTs(),
+        })
+      }
+      return out
+    },
+    [],
+  )
+
+  // Reset + run search once per query (background; UI timeline stays frozen)
+  useEffect(() => {
+    if (!chatSearchOpen || !chatSearchQ || !client || !activeRoomId) {
+      searchQueryKeyRef.current = ''
+      searchQuietScrollbackRef.current = false
+      resetSearchHits()
+      setSearchLoading(false)
+      return
+    }
+
+    const roomId = activeRoomId
+    const query = chatSearchQ
+    const room = client.getRoom(roomId)
+    if (!room) return
+
+    searchQueryKeyRef.current = query
+    resetSearchHits()
+    setSearchLoading(true)
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        // 1) Instant local scan of what's already in memory
+        mergeSearchHits(
+          collectLocalSearchHits(
+            [
+              ...room.getLiveTimeline().getEvents(),
+              ...messagesRef.current,
+            ],
+            query,
+          ),
+          query,
+          { flush: true },
+        )
+
+        // 2) Server search (fast first paint; often incomplete vs local substring)
+        try {
+          const remote = await searchRoomEventsServer(client, roomId, query, 200)
+          if (!cancelled) mergeSearchHits(remote, query, { flush: true })
+        } catch (err) {
+          console.warn('In-chat server search failed', err)
+        }
+
+        if (cancelled || searchQueryKeyRef.current !== query) return
+
+        // 3) Quiet scrollback — always. Server index misses a lot; keep UI frozen.
+        searchQuietScrollbackRef.current = true
+        try {
+          for (let page = 0; page < SEARCH_SCROLLBACK_PAGES; page++) {
+            if (cancelled || searchQueryKeyRef.current !== query) break
+            if (searchHitsMapRef.current.size >= SEARCH_HIT_CAP) break
+
+            const before = room.getLiveTimeline().getEvents().length
+            // eslint-disable-next-line no-await-in-loop
+            await client.scrollback(room, SEARCH_SCROLLBACK_SIZE)
+            const all = room.getLiveTimeline().getEvents()
+            const after = all.length
+            if (after <= before) break
+
+            // scrollback prepends — only scan newly loaded prefix
+            const newlyLoaded = all.slice(0, after - before)
+            mergeSearchHits(collectLocalSearchHits(newlyLoaded, query), query)
+
+            // Keep the main thread free for paint/input
+            // eslint-disable-next-line no-await-in-loop
+            await yieldToUi()
+          }
+
+          // Final pass: catch anything missed by prefix-only scans / decrypt races
+          if (!cancelled && searchQueryKeyRef.current === query) {
+            mergeSearchHits(
+              collectLocalSearchHits(room.getLiveTimeline().getEvents(), query),
+              query,
+            )
+          }
+        } catch (err) {
+          console.warn('In-chat search scrollback failed', err)
+        } finally {
+          searchQuietScrollbackRef.current = false
+        }
+
+        if (!cancelled && searchQueryKeyRef.current === query) {
+          flushSearchHits(true)
+          setSearchLoading(false)
+        }
+      })()
+    }, 220)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      searchQuietScrollbackRef.current = false
+      if (searchPublishTimerRef.current != null) {
+        window.clearTimeout(searchPublishTimerRef.current)
+        searchPublishTimerRef.current = null
       }
     }
-    if (activeRoom) {
-      add(
-        activeRoom
-          .getLiveTimeline()
-          .getEvents()
-          .filter(isTimelineMessageEvent),
-      )
-    }
-    add(messages)
-    return Array.from(byId.values()).sort((a, b) => a.getTs() - b.getTs())
-    // reactionTick: decrypt / window reshuffle may mutate event bodies in place
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRoom, messages, reactionTick])
+  }, [
+    chatSearchOpen,
+    chatSearchQ,
+    client,
+    activeRoomId,
+    resetSearchHits,
+    mergeSearchHits,
+    collectLocalSearchHits,
+    flushSearchHits,
+  ])
 
-  const searchHitCount = useMemo(() => {
-    if (!chatSearchQ) return 0
-    return searchCorpus.filter((e) => eventMatchesSearch(e, chatSearchQ)).length
-  }, [searchCorpus, chatSearchQ])
-
-  const searchResults = useMemo(() => {
-    if (!chatSearchQ) return []
-    const out: {
-      eventId: string
-      senderId: string
-      senderName: string
-      snippet: string
-      ts: number
-    }[] = []
-    for (let i = searchCorpus.length - 1; i >= 0; i--) {
-      const event = searchCorpus[i]
-      if (!eventMatchesSearch(event, chatSearchQ)) continue
-      const eventId = event.getId()
-      if (!eventId) continue
-      const snippet = (
-        messagePlainText(event) ||
-        messageSnippet(event) ||
-        'Сообщение'
-      ).replace(/\s+/g, ' ')
-      out.push({
-        eventId,
-        senderId: event.getSender() || '',
-        senderName: getSenderName(event),
-        snippet: snippet.length > 120 ? `${snippet.slice(0, 117)}…` : snippet,
-        ts: event.getTs(),
-      })
-      if (out.length >= 40) break
-    }
-    return out
-  }, [searchCorpus, chatSearchQ])
-
-  // Keep cursor valid when the result list changes
+  // Keep cursor valid when the result list grows
   useEffect(() => {
-    if (!chatSearchQ || searchResults.length === 0) {
+    if (!chatSearchQ || searchHitCount === 0) {
       setSearchCursor(-1)
       return
     }
     setSearchCursor((i) =>
-      i < 0 ? -1 : Math.min(i, searchResults.length - 1),
+      i < 0 ? -1 : Math.min(i, searchHitCount - 1),
     )
-  }, [chatSearchQ, searchResults])
+  }, [chatSearchQ, searchHitCount])
 
   const scrollToBottom = useCallback((_smooth = false) => {
     const el = timelineRef.current
@@ -2503,6 +3356,27 @@ export function MessageTimeline() {
     }
   }, [activeRoomId, pendingUnreadEventId, pendingScrollEventId])
 
+  // Entering a chat with an unread separator: mark read after a short dwell
+  // even when stickToBottom was cleared for unread centering (short rooms
+  // never fire a scroll "at bottom" event, so the sep would otherwise stick).
+  useEffect(() => {
+    if (!activeRoomId || !unreadBeforeId || messages.length === 0) return
+    const roomId = activeRoomId
+    const t = window.setTimeout(() => {
+      if (activeRoomIdRef.current !== roomId) return
+      void markRoomAsRead(roomId)
+      clearPendingUnreadEvent()
+      setUnreadBeforeId(null)
+    }, 700)
+    return () => window.clearTimeout(t)
+  }, [
+    activeRoomId,
+    unreadBeforeId,
+    messages.length,
+    markRoomAsRead,
+    clearPendingUnreadEvent,
+  ])
+
   // Mark read while pinned to bottom; flush immediately on leave so a
   // cancelled 400ms timer cannot leave a ghost unread badge in the list.
   useEffect(() => {
@@ -2595,12 +3469,31 @@ export function MessageTimeline() {
 
     const handleTimelineEvent = (event: MatrixEvent) => {
       if (event.getRoomId() !== roomId) return
+      // Thread replies live off the main timeline — still refresh reply chips
+      if (isThreadReplyEvent(event)) {
+        setReactionTick((t) => t + 1)
+        return
+      }
       const type = event.getType()
+      if (
+        type === 'org.matrix.msc3381.poll.response' ||
+        type === 'm.poll.response' ||
+        type === 'org.matrix.msc3381.poll.end' ||
+        type === 'm.poll.end'
+      ) {
+        setPollTick((t) => t + 1)
+        return
+      }
       if (
         type === 'm.room.message' ||
         type === 'm.sticker' ||
         type === 'm.room.encrypted' ||
+        type === 'org.matrix.msc3381.poll.start' ||
+        type === 'm.poll.start' ||
         type === EventType.Reaction ||
+        // Call history tiles: invite/answer/hangup/reject must refresh the list
+        // (otherwise only the first call appears after initial hydrate)
+        isCallLifecycleEvent(event) ||
         event.isDecryptionFailure()
       ) {
         // Don't clobber an in-flight history anchor restore
@@ -2618,10 +3511,24 @@ export function MessageTimeline() {
     room.on(RoomEvent.Timeline, handleTimelineEvent)
     room.on(RoomEvent.Redaction, refresh)
 
+    const bumpThreadChip = () => {
+      if (!stillHere()) return
+      setReactionTick((t) => t + 1)
+    }
+    room.on(ThreadEvent.NewReply, bumpThreadChip)
+    room.on(ThreadEvent.Update, bumpThreadChip)
+    room.on(ThreadEvent.New, bumpThreadChip)
+
+    const onThreadLocalEcho = (event: MatrixEvent) => {
+      if (event.getRoomId() !== roomId) return
+      if (isThreadReplyEvent(event)) bumpThreadChip()
+    }
+    room.on(RoomEvent.LocalEchoUpdated, onThreadLocalEcho)
+
     const onReceipt = () => {
       if (!stillHere()) return
       // Receipts only change the read-strip under bubbles — defer during scroll
-      // so we don't remount virtual rows mid-gesture.
+      // so we don't thrash layout mid-gesture.
       if (isTimelineScrolling.current) {
         pendingReceiptTick.current = true
         return
@@ -2640,7 +3547,7 @@ export function MessageTimeline() {
 
     const onDecrypted = (event: MatrixEvent) => {
       if (event.getRoomId() !== roomId) return
-      // MatrixEvent mutates in place. Avoid remounting the virtual list on
+      // MatrixEvent mutates in place. Avoid remounting the list on
       // every decrypt mid-scroll (kills trackpad inertia). Coalesce updates.
       if (decryptRefreshTimer.current != null) {
         window.clearTimeout(decryptRefreshTimer.current)
@@ -2705,6 +3612,10 @@ export function MessageTimeline() {
       room.removeListener(RoomEvent.Redaction, refresh)
       room.removeListener(RoomEvent.Receipt, onReceipt)
       room.removeListener(RoomStateEvent.Events, onStateEvent)
+      room.removeListener(ThreadEvent.NewReply, bumpThreadChip)
+      room.removeListener(ThreadEvent.Update, bumpThreadChip)
+      room.removeListener(ThreadEvent.New, bumpThreadChip)
+      room.removeListener(RoomEvent.LocalEchoUpdated, onThreadLocalEcho)
       client.removeListener(MatrixEventEvent.Decrypted, onDecrypted)
       client.removeListener(MatrixEventEvent.Replaced, onReplaced)
       if (decryptRefreshTimer.current != null) {
@@ -3245,23 +4156,26 @@ export function MessageTimeline() {
           return !rid || rid === activeRoomId
         })
       : messages
-    return groupTimelineItems(scoped)
-  }, [messages, activeRoomId])
+    return groupTimelineItems(scoped, myUserId)
+  }, [messages, activeRoomId, myUserId])
 
   const timelineRows = useMemo(() => {
     const rows: TimelineRow[] = []
     for (let index = 0; index < timelineItems.length; index++) {
       const item = timelineItems[index]
       const prev = index > 0 ? timelineItems[index - 1] : null
-      const firstEvent =
-        item.kind === 'album' ? item.imageEvents[0] : item.event
-      const prevFirst =
-        prev?.kind === 'album' ? prev.imageEvents[0] : prev?.event
-      const isOwn = firstEvent.getSender() === myUserId
+      const firstEvent = timelineItemFirstEvent(item)
+      const prevFirst = prev ? timelineItemFirstEvent(prev) : null
+      const isCall = item.kind === 'call'
+      const isOwn = isCall
+        ? item.summary.outbound
+        : firstEvent.getSender() === myUserId
       const dayChanged =
         !prevFirst || !isSameDay(prevFirst.getTs(), firstEvent.getTs())
       const isContinuation =
+        !isCall &&
         !!prevFirst &&
+        prev?.kind !== 'call' &&
         !dayChanged &&
         prevFirst.getSender() === firstEvent.getSender() &&
         firstEvent.getTs() - prevFirst.getTs() < CONTINUATION_MS
@@ -3279,7 +4193,9 @@ export function MessageTimeline() {
         item.kind === 'album'
           ? item.albumId ||
             item.imageEvents.map((e) => e.getId()).join('-')
-          : item.event.getId() || `row-${index}`
+          : item.kind === 'call'
+            ? `call-${item.summary.callId}`
+            : item.event.getId() || `row-${index}`
 
       const eventId = firstEvent.getId()
       rows.push({
@@ -3310,7 +4226,7 @@ export function MessageTimeline() {
     applyInitialPosition()
   }, [applyInitialPosition, timelineRows.length])
 
-  // Native pin-to-bottom on room open / first hydrate (no virtualizer).
+  // Native pin-to-bottom on room open / first hydrate.
   useLayoutEffect(() => {
     if (isReady) return
     if (messages.length === 0) return
@@ -3411,8 +4327,8 @@ export function MessageTimeline() {
     }
 
     if (stickToBottom.current) {
-      // Backup when stickToBottom disagrees briefly with virtualizer isAtEnd
-      // (measure lag). Append-only — never force on prepend/reaction churn.
+      // Backup when stickToBottom briefly lags layout after append.
+      // Append-only — never force on prepend/reaction churn.
       if (appendedNew) {
         scrollToBottomAfterLayout()
       }
@@ -3505,6 +4421,61 @@ export function MessageTimeline() {
     [],
   )
 
+  // Trackpad gestures: swipe-left reply / swipe-right leave chat.
+  // Must re-run when the scroller mounts (messages arrive / isReady).
+  // Separate from scroll/pagination — only adds its own wheel listener.
+  useLayoutEffect(() => {
+    if (!activeRoom || messages.length === 0 || !isReady) return
+    const el = timelineRef.current
+    if (!el) return
+
+    return attachChatGestures(el, {
+      exitTarget:
+        (el.closest('.tg-chat-layer') as HTMLElement | null) ||
+        chatShellRef.current,
+      isEnabled: () =>
+        !!activeRoomIdRef.current && !el.classList.contains('pointer-events-none'),
+      onReply: (eventId) => {
+        const room = activeRoom
+        const ev =
+          room.findEventById(eventId) ||
+          messagesRef.current.find((m) => m.getId() === eventId) ||
+          null
+        if (ev) handleReply([ev])
+      },
+      onExitRequest: (exitOffsetPx) => {
+        const st = useRoomStore.getState()
+        if (st.threadRootId) {
+          st.actions.closeThread()
+          return
+        }
+        if (st.profileRoomId) {
+          st.actions.closeRoomProfile()
+          return
+        }
+        if (onRequestCloseChat) onRequestCloseChat(exitOffsetPx)
+        else setActiveRoomId(null)
+      },
+    })
+  }, [
+    activeRoom,
+    handleReply,
+    setActiveRoomId,
+    onRequestCloseChat,
+    messages.length,
+    isReady,
+    CHAT_GESTURES_REV,
+  ])
+
+  const handleOpenThread = useCallback(
+    (event: MatrixEvent) => {
+      const id = event.getId()
+      if (!id || id.startsWith('~')) return
+      openThread(id)
+    },
+    [openThread],
+  )
+
   const openContextMenu = useCallback(
     (e: React.MouseEvent, events: MatrixEvent[]) => {
       e.preventDefault()
@@ -3547,11 +4518,8 @@ export function MessageTimeline() {
           messageSnippet(events[0])
         : messagePlainText(events[0]) || messageSnippet(events[0])
     if (!text) return
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (err) {
-      console.error('Failed to copy', err)
-    }
+    const ok = await copyTextToClipboard(text)
+    if (!ok) console.error('Failed to copy')
   }, [])
 
   const handleSaveGifFromMenu = useCallback(
@@ -3613,6 +4581,67 @@ export function MessageTimeline() {
       }
     },
     [activeRoom, client],
+  )
+
+  const openModerationFromEvents = useCallback(
+    (events: MatrixEvent[], action: AdminConfirmAction) => {
+      if (!activeRoom || !client || !myUserId) return
+      const senderId = events[0]?.getSender()
+      if (!senderId) return
+      if (!canModerateMember(activeRoom, myUserId, senderId, action === 'unban' ? 'ban' : action)) {
+        return
+      }
+      const member = activeRoom.getMember(senderId)
+      setAdminError(null)
+      setAdminConfirm({
+        action,
+        target: {
+          userId: senderId,
+          displayName: member
+            ? member.name ||
+              member.rawDisplayName ||
+              senderId.split(':')[0]?.substring(1) ||
+              senderId
+            : getSenderName(events[0]),
+          avatarMxc: member?.getMxcAvatarUrl?.() ?? null,
+        },
+      })
+    },
+    [activeRoom, client, myUserId],
+  )
+
+  const runTimelineAdminAction = useCallback(
+    async (reason: string) => {
+      if (!adminConfirm || !activeRoom || !client) return
+      const { action, target } = adminConfirm
+      setAdminBusy(true)
+      setAdminError(null)
+      try {
+        if (action === 'kick') {
+          await client.kick(activeRoom.roomId, target.userId, reason || undefined)
+        } else if (action === 'ban') {
+          await client.ban(activeRoom.roomId, target.userId, reason || undefined)
+        } else {
+          await client.unban(activeRoom.roomId, target.userId)
+        }
+        setAdminConfirm(null)
+      } catch (err) {
+        console.error('Room moderation failed', err)
+        setAdminError(
+          formatModerationError(
+            err,
+            action === 'kick'
+              ? 'Не удалось исключить'
+              : action === 'ban'
+                ? 'Не удалось заблокировать'
+                : 'Не удалось разблокировать',
+          ),
+        )
+      } finally {
+        setAdminBusy(false)
+      }
+    },
+    [adminConfirm, activeRoom, client],
   )
 
   const handlePinForEveryone = useCallback(
@@ -3891,9 +4920,7 @@ export function MessageTimeline() {
       const deadline = Date.now() + maxMs
       while (Date.now() < deadline) {
         if (gen !== pinJumpGenRef.current) return false
-        // Row data existing is enough to consider the event "rendered" —
-        // with virtualization the DOM node itself may not mount until the
-        // caller scrolls the virtualizer to that row's index.
+        // Wait until the row is in the messages array (or already in the DOM).
         if (findTimelineRowIndex(eventId) >= 0 || findPinDomEl(eventId)) {
           return true
         }
@@ -3991,8 +5018,7 @@ export function MessageTimeline() {
 
   /**
    * Core teleport: caller already owns `gen` (bumped via `pinJumpGenRef`).
-   * Ensures the event is loaded, scrolls the virtualizer to its row, then
-   * applies the highlight once the row has mounted.
+   * Ensures the event is loaded, scrolls to its row, then applies highlight.
    */
   const runJumpToEvent = useCallback(
     async (
@@ -4111,10 +5137,6 @@ export function MessageTimeline() {
 
         if (!eventId || gen !== pinJumpGenRef.current) return
 
-        // Prefer the virtualizer — it aligns the target row (and its date
-        // separator, when present) to the top even before that separator
-        // node exists in the DOM. Manual DOM-offset scroll is a fallback
-        // for the rare case the row never resolves.
         const jumped = await runJumpToEvent(eventId, gen, { align: 'start' })
         if (gen !== pinJumpGenRef.current) return
 
@@ -4175,8 +5197,9 @@ export function MessageTimeline() {
 
   const jumpToSearchIndex = useCallback(
     (index: number) => {
-      if (index < 0 || index >= searchResults.length) return
-      const hit = searchResults[index]
+      const hits = searchHitsOrderedRef.current
+      if (index < 0 || index >= hits.length) return
+      const hit = hits[index]
       if (!hit) return
       setSearchCursor(index)
       setSearchResultsOpen(false)
@@ -4184,26 +5207,26 @@ export function MessageTimeline() {
       setShowJumpDown(true)
       scrollToEvent(hit.eventId, undefined, 2000)
     },
-    [searchResults, scrollToEvent],
+    [scrollToEvent],
   )
 
   const goSearchPrev = useCallback(() => {
-    if (searchResults.length === 0) return
+    if (searchHitCount === 0) return
     if (searchCursor < 0) {
       jumpToSearchIndex(0)
       return
     }
     jumpToSearchIndex(Math.max(0, searchCursor - 1))
-  }, [searchResults.length, searchCursor, jumpToSearchIndex])
+  }, [searchHitCount, searchCursor, jumpToSearchIndex])
 
   const goSearchNext = useCallback(() => {
-    if (searchResults.length === 0) return
+    if (searchHitCount === 0) return
     if (searchCursor < 0) {
       jumpToSearchIndex(0)
       return
     }
-    jumpToSearchIndex(Math.min(searchResults.length - 1, searchCursor + 1))
-  }, [searchResults.length, searchCursor, jumpToSearchIndex])
+    jumpToSearchIndex(Math.min(searchHitCount - 1, searchCursor + 1))
+  }, [searchHitCount, searchCursor, jumpToSearchIndex])
 
   // Jump from profile / global message search / deep links
   useEffect(() => {
@@ -4547,36 +5570,56 @@ export function MessageTimeline() {
 
   const mentionMembers = useMemo(() => {
     if (!activeRoom) return []
-    return activeRoom.getJoinedMembers().map((m) => ({
-      userId: m.userId,
-      displayName:
-        m.name ||
-        m.rawDisplayName ||
-        m.userId.split(':')[0].substring(1) ||
-        m.userId,
-    }))
+    // All known room members (not only joined) so @localpart pills resolve
+    // for bridge users / people who left but still appear in history.
+    const seen = new Set<string>()
+    const out: { userId: string; displayName: string }[] = []
+    for (const m of activeRoom.getMembers()) {
+      if (!m.userId || seen.has(m.userId)) continue
+      seen.add(m.userId)
+      out.push({
+        userId: m.userId,
+        displayName:
+          m.name ||
+          m.rawDisplayName ||
+          m.userId.split(':')[0].substring(1) ||
+          m.userId,
+      })
+    }
+    return out
   }, [activeRoom, messages.length, reactionTick])
 
-  const handleUserClick = useCallback(
-    async (userId: string) => {
-      if (!client || userId === myUserId) return
-      try {
-        const roomId = await openOrCreateDirectChat(client, userId)
-        useRoomStore.getState().actions.setActiveRoomId(roomId)
-      } catch (err) {
-        console.error('Failed to open DM from mention', err)
-        alert('Не удалось открыть личный чат')
+  const handleUserClick = useCallback<MentionUserClickHandler>(
+    (userId, visibleLabel, anchor) => {
+      if (!activeRoom) return
+      const fromPill = visibleLabel?.trim().replace(/^@+/, '')
+      const displayName = mentionComposerLabel(
+        userId,
+        fromPill || undefined,
+      )
+
+      // Always open the card — never silently insert into the composer.
+      // (Legacy 2-arg callers / HMR may omit anchor; use a viewport fallback.)
+      const fallback: MentionClickAnchor = {
+        left: Math.max(12, window.innerWidth / 2 - 140),
+        top: Math.max(12, window.innerHeight / 2 - 80),
+        right: Math.min(window.innerWidth - 12, window.innerWidth / 2 + 140),
+        bottom: Math.min(window.innerHeight - 12, window.innerHeight / 2 + 20),
+        width: 280,
+        height: 100,
       }
+
+      setMentionCard({
+        userId,
+        visibleLabel: visibleLabel || displayName,
+        anchor: anchor ?? fallback,
+      })
     },
-    [client, myUserId],
+    [activeRoom],
   )
 
   if (!activeRoomId || !client) {
-    return (
-      <div className="flex-1 flex items-center justify-center tg-chat-bg">
-        <p className="text-white/40 text-[15px]">Выберите чат, чтобы начать переписку</p>
-      </div>
-    )
+    return null
   }
 
   // Room id is selected but SDK hasn't handed us the Room yet — keep shell,
@@ -4584,7 +5627,7 @@ export function MessageTimeline() {
   if (!activeRoom) {
     return (
       <div className="flex-1 flex items-center justify-center tg-chat-bg">
-        <div className="flex flex-col items-center gap-2 text-white/45">
+        <div className="flex flex-col items-center gap-2 text-ink-faint">
           <Loader2 className="w-5 h-5 animate-spin" />
           <p className="text-[13px]">Загрузка комнаты…</p>
         </div>
@@ -4603,7 +5646,8 @@ export function MessageTimeline() {
     <VideoOpenContext.Provider value={openVideo}>
     <TimelineScrollContext.Provider value={timelineRef}>
       <div
-        className="flex-1 flex flex-col tg-chat-bg overflow-hidden relative"
+        ref={chatShellRef}
+        className="tg-chat-shell flex-1 flex flex-col tg-chat-bg overflow-hidden relative"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -4613,12 +5657,22 @@ export function MessageTimeline() {
           <div className="tg-drop-overlay">Отпустите файлы, чтобы прикрепить</div>
         )}
 
-        <div className="tg-header-bar border-b shrink-0 relative z-30">
+        <div
+          className={clsx(
+            'tg-header-bar border-b shrink-0 relative',
+            chatSearchOpen ? 'z-40' : 'z-30',
+          )}
+        >
           <ChatHeader
             room={activeRoom}
             chatSearchOpen={chatSearchOpen}
             showDecrypt={showDecrypt}
             typingLabel={typingLabel}
+            statusLabel={presenceLabel}
+            onVoiceCall={handleVoiceCall}
+            onVideoCall={nativeDm ? handleVideoCall : undefined}
+            callActive={matrixRtcActive || elementCallOpen}
+            callBusy={callBusy}
             onToggleSearch={() => {
               setChatSearchOpen((v) => {
                 if (v) {
@@ -4656,7 +5710,7 @@ export function MessageTimeline() {
                     if (chatSearchQuery.trim()) setSearchResultsOpen(true)
                   }}
                   onKeyDown={(e) => {
-                    if (!chatSearchQ || searchResults.length === 0) return
+                    if (!chatSearchQ || searchHitCount === 0) return
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       if (e.altKey) goSearchPrev()
@@ -4710,7 +5764,7 @@ export function MessageTimeline() {
 
               {chatSearchQ &&
                 !searchResultsOpen &&
-                searchResults.length > 0 && (
+                searchHitCount > 0 && (
                   <div className="mt-2 flex items-center justify-center gap-1">
                     <button
                       type="button"
@@ -4730,14 +5784,14 @@ export function MessageTimeline() {
                     >
                       {searchCursor >= 0 ? searchCursor + 1 : '—'}
                       <span className="tg-search-nav-sep"> / </span>
-                      {searchResults.length}
+                      {searchHitCount}
                     </button>
                     <button
                       type="button"
                       onClick={goSearchNext}
                       disabled={
                         searchCursor >= 0 &&
-                        searchCursor >= searchResults.length - 1
+                        searchCursor >= searchHitCount - 1
                       }
                       className="tg-icon-btn w-7 h-7 flex items-center justify-center rounded-lg disabled:opacity-30"
                       aria-label="Следующий результат"
@@ -4750,9 +5804,26 @@ export function MessageTimeline() {
 
               {chatSearchQ &&
                 !searchResultsOpen &&
-                searchResults.length === 0 && (
-                  <div className="tg-search-nav-empty mt-2 text-center text-[12px]">
-                    Ничего не найдено
+                searchHitCount === 0 && (
+                  <div className="tg-search-nav-empty mt-2 text-center text-[12px] flex items-center justify-center gap-1.5">
+                    {searchLoading ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Ищем…
+                      </>
+                    ) : (
+                      'Ничего не найдено'
+                    )}
+                  </div>
+                )}
+
+              {chatSearchQ &&
+                !searchResultsOpen &&
+                searchHitCount > 0 &&
+                searchLoading && (
+                  <div className="tg-search-nav-empty mt-1 text-center text-[11px] flex items-center justify-center gap-1 opacity-70">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Догружаем историю…
                   </div>
                 )}
 
@@ -4762,9 +5833,14 @@ export function MessageTimeline() {
                   role="listbox"
                   aria-label="Результаты поиска"
                 >
-                  {searchResults.length === 0 ? (
+                  {searchLoading && searchHitCount === 0 ? (
+                    <div className="tg-search-results-empty px-3 py-3 text-[13px] text-center flex items-center justify-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Ищем по истории чата…
+                    </div>
+                  ) : searchHitCount === 0 ? (
                     <div className="tg-search-results-empty px-3 py-3 text-[13px] text-center">
-                      Ничего не найдено в загруженной истории
+                      Ничего не найдено
                     </div>
                   ) : (
                     <ul className="py-1">
@@ -4803,10 +5879,16 @@ export function MessageTimeline() {
                           </button>
                         </li>
                       ))}
-                      {searchHitCount > searchResults.length && (
+                      {searchHitCount > SEARCH_DROPDOWN_LIMIT && (
                         <li className="tg-search-results-more px-3 py-2 text-[11px] text-center border-t">
-                          Показаны первые {searchResults.length} из{' '}
-                          {searchHitCount}
+                          В списке первые {SEARCH_DROPDOWN_LIMIT} · всего{' '}
+                          {searchHitCount} · листай ↑↓
+                        </li>
+                      )}
+                      {searchLoading && (
+                        <li className="tg-search-results-more px-3 py-2 text-[11px] text-center border-t flex items-center justify-center gap-1.5">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Догружаем историю…
                         </li>
                       )}
                     </ul>
@@ -4817,11 +5899,11 @@ export function MessageTimeline() {
           )}
         </div>
 
-        {/* Pin bar lives ABOVE the scroll container — never overlays virtual rows */}
+        {/* Pin bar lives ABOVE the scroll container — never overlays messages */}
         {pinnedMessages.length > 0 && (
           <div
             ref={pinBarRef}
-            className="tg-pinned-bar-slot shrink-0 border-b relative z-30"
+            className="tg-pinned-bar-slot shrink-0 border-b relative z-20"
           >
             <PinnedMessageBar
               preview={
@@ -4866,7 +5948,7 @@ export function MessageTimeline() {
               style={{ overflowAnchor: 'none' }}
             >
               <span
-                className="inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[11px] text-white/55 backdrop-blur-xs [overflow-anchor:none]"
+                className="inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[11px] text-ink-muted backdrop-blur-xs [overflow-anchor:none]"
                 style={{ overflowAnchor: 'none' }}
               >
                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -4917,14 +5999,14 @@ export function MessageTimeline() {
           */}
           {isInitialLoading ? (
             <div className="flex-1 flex items-center justify-center min-h-0">
-              <div className="flex flex-col items-center gap-2 text-white/45">
+              <div className="flex flex-col items-center gap-2 text-ink-faint">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <p className="text-[13px]">Загрузка сообщений…</p>
               </div>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex-1 flex items-center justify-center min-h-0">
-              <p className="text-white/40 text-[14px]">Нет сообщений</p>
+              <p className="text-ink-faint text-[14px]">Нет сообщений</p>
             </div>
           ) : (
           <div
@@ -5006,6 +6088,7 @@ export function MessageTimeline() {
                         }
                         onToggleSelect={toggleSelectMedia}
                         onReply={handleReply}
+                        onOpenThread={handleOpenThread}
                         onContextMenu={openContextMenu}
                         onScrollTo={scrollToEvent}
                         mentionMembers={mentionMembers}
@@ -5016,6 +6099,8 @@ export function MessageTimeline() {
                         }
                         onHoverActionsChange={setHoveredEventIdDelayed}
                       />
+                    ) : item.kind === 'call' ? (
+                      <CallHistoryTile summary={item.summary} />
                     ) : (
                       <MessageBubble
                         event={item.event}
@@ -5041,6 +6126,7 @@ export function MessageTimeline() {
                         mentionMembers={mentionMembers}
                         onUserClick={handleUserClick}
                         onReply={handleReply}
+                        onOpenThread={handleOpenThread}
                         onContextMenu={openContextMenu}
                         onScrollTo={scrollToEvent}
                         showHoverActions={
@@ -5048,6 +6134,8 @@ export function MessageTimeline() {
                           hoveredEventId === item.event.getId()
                         }
                         onHoverActionsChange={setHoveredEventIdDelayed}
+                        pollTick={pollTick}
+                        onPollChanged={() => setPollTick((t) => t + 1)}
                       />
                     )}
                   </div>
@@ -5075,15 +6163,15 @@ export function MessageTimeline() {
         </div>
 
         {(selectionMode || selectedMediaIds.length > 0) && (
-          <div className="px-3 py-2 flex items-center justify-between gap-3 border-t border-white/8 bg-[#1a2733]">
-            <span className="text-[13px] text-white/70">
+          <div className="px-3 py-2 flex items-center justify-between gap-3 border-t border-hairline bg-[var(--menu-surface-solid)]">
+            <span className="text-[13px] text-ink-muted">
               Выбрано: {selectedMediaIds.length}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={clearSelection}
-                className="text-[13px] text-white/45 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10"
+                className="text-[13px] text-ink-faint hover:text-ink px-2 py-1 rounded-lg hover:bg-surface-inset"
               >
                 Отмена
               </button>
@@ -5091,7 +6179,7 @@ export function MessageTimeline() {
                 type="button"
                 onClick={replyToSelection}
                 disabled={selectedMediaIds.length === 0}
-                className="text-[13px] font-medium text-white/90 bg-white/10 hover:bg-white/15 disabled:opacity-40 px-3 py-1.5 rounded-full"
+                className="text-[13px] font-medium text-ink bg-surface-inset hover:bg-surface-inset disabled:opacity-40 px-3 py-1.5 rounded-full"
               >
                 Ответить
               </button>
@@ -5099,7 +6187,7 @@ export function MessageTimeline() {
                 type="button"
                 onClick={forwardSelection}
                 disabled={selectedMediaIds.length === 0}
-                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 rounded-full"
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--color-on-accent)] bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 rounded-full"
               >
                 <Forward className="w-3.5 h-3.5" strokeWidth={2.25} />
                 Переслать
@@ -5152,14 +6240,51 @@ export function MessageTimeline() {
             isOpen={!!profileRoomId && profileRoomId === activeRoom.roomId}
             room={activeRoom}
             client={client}
+            focusUserId={
+              profileRoomId === activeRoom.roomId ? profileFocusUserId : null
+            }
             onClose={closeRoomProfile}
             onMention={(m) => {
               setPendingMention({
                 userId: m.userId,
-                displayName: m.displayName,
+                // Localpart → proper @tag (display names with spaces break pills)
+                displayName: mentionComposerLabel(m.userId, m.displayName),
                 nonce: Date.now(),
               })
             }}
+          />
+        )}
+
+        {client && activeRoom && mentionCard && (
+          <MentionUserCard
+            room={activeRoom}
+            client={client}
+            userId={mentionCard.userId}
+            visibleLabel={mentionCard.visibleLabel}
+            anchor={mentionCard.anchor}
+            onClose={() => setMentionCard(null)}
+            onMention={(m) => {
+              setPendingMention({
+                userId: m.userId,
+                displayName: mentionComposerLabel(m.userId, m.displayName),
+                nonce: Date.now(),
+              })
+            }}
+            onOpenProfile={() =>
+              openRoomProfile(activeRoom.roomId, mentionCard.userId)
+            }
+          />
+        )}
+
+        {client && threadRootId && (
+          <ThreadPanel
+            isOpen
+            room={activeRoom}
+            client={client}
+            rootEventId={threadRootId}
+            onClose={closeThread}
+            onUserClick={handleUserClick}
+            members={mentionMembers}
           />
         )}
 
@@ -5175,6 +6300,30 @@ export function MessageTimeline() {
             }
             canDelete={ctxMenu.isOwn}
             canForward={ctxMenu.events.some(canForwardEvent)}
+            canKickSender={
+              !!activeRoom &&
+              !!myUserId &&
+              !ctxMenu.isOwn &&
+              !!ctxMenu.events[0]?.getSender() &&
+              canModerateMember(
+                activeRoom,
+                myUserId,
+                ctxMenu.events[0].getSender()!,
+                'kick',
+              )
+            }
+            canBanSender={
+              !!activeRoom &&
+              !!myUserId &&
+              !ctxMenu.isOwn &&
+              !!ctxMenu.events[0]?.getSender() &&
+              canModerateMember(
+                activeRoom,
+                myUserId,
+                ctxMenu.events[0].getSender()!,
+                'ban',
+              )
+            }
             canPinForEveryone={
               !!activeRoom && canPinMessages(activeRoom, myUserId)
             }
@@ -5203,11 +6352,19 @@ export function MessageTimeline() {
                 : undefined
             }
             onReply={() => handleReply(ctxMenu.events)}
+            onReplyInThread={() => {
+              const id = ctxMenu.events[0]?.getId()
+              if (id && !id.startsWith('~')) openThread(id)
+            }}
             onForward={() => openForwardPicker(ctxMenu.events)}
             onSelect={() => beginSelectFromMenu(ctxMenu.events)}
             onEdit={() => handleEditFromMenu(ctxMenu.events)}
             onCopy={() => void handleCopyFromMenu(ctxMenu.events)}
             onDelete={() => void handleDeleteFromMenu(ctxMenu.events)}
+            onKickSender={() =>
+              openModerationFromEvents(ctxMenu.events, 'kick')
+            }
+            onBanSender={() => openModerationFromEvents(ctxMenu.events, 'ban')}
             onPinForEveryone={() => void handlePinForEveryone(ctxMenu.events)}
             onUnpinForEveryone={() =>
               void handleUnpinForEveryone(ctxMenu.events)
@@ -5235,6 +6392,24 @@ export function MessageTimeline() {
               : 'Переслать в…'
           }
         />
+
+        {client && (
+          <AdminConfirmDialog
+            open={!!adminConfirm}
+            action={adminConfirm?.action || 'kick'}
+            target={adminConfirm?.target || null}
+            client={client}
+            roomName={activeRoom?.name || activeRoom?.roomId}
+            busy={adminBusy}
+            error={adminError}
+            onClose={() => {
+              if (adminBusy) return
+              setAdminConfirm(null)
+              setAdminError(null)
+            }}
+            onConfirm={(reason) => void runTimelineAdminAction(reason)}
+          />
+        )}
 
         {viewer && (
           <ImageViewer

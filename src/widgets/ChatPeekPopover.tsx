@@ -23,6 +23,7 @@ import {
   clampMenuPosition,
   viewportBounds,
 } from '@/shared/lib/clampMenuPosition'
+import { isThreadReplyEvent } from '@/shared/lib/threads'
 
 export type ChatPeekAnchor = {
   left: number
@@ -60,6 +61,7 @@ function isPeekMessage(ev: MatrixEvent): boolean {
     return false
   }
   if (isReplaceEvent(ev)) return false
+  if (isThreadReplyEvent(ev)) return false
   const t = ev.getType()
   return (
     t === 'm.room.message' ||
@@ -320,7 +322,7 @@ export function ChatPeekPopover({ room, anchor, onClose }: ChatPeekPopoverProps)
           className="tg-chat-peek-body flex-1 min-h-0 overflow-y-auto overscroll-contain px-2.5 py-2 space-y-1.5"
         >
           {events.length === 0 ? (
-            <div className="text-center text-[12.5px] text-white/40 py-10 px-4">
+            <div className="text-center text-[12.5px] text-ink-faint py-10 px-4">
               Пока нет сообщений для превью
             </div>
           ) : (
@@ -345,7 +347,7 @@ export function ChatPeekPopover({ room, anchor, onClose }: ChatPeekPopoverProps)
           )}
         </div>
 
-        <footer className="tg-chat-peek-footer px-3 py-2 text-[11px] text-white/40 shrink-0">
+        <footer className="tg-chat-peek-footer px-3 py-2 text-[11px] text-ink-faint shrink-0">
           Не отмечается как прочитанное
         </footer>
       </div>

@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Env / secrets (never commit)
+.env
+.env.*
+!.env.example
+
 # Twemoji PNGs (run: bash scripts/fetch-twemoji.sh)
 src/assets/twemoji/
 public/twemoji/
@@ -27,5 +32,14 @@ public/twemoji/
 *.sln
 *.sw?
 
-# Local timeline backups
+# Local timeline backups / signed builds / pack artifacts
 backups/
+release/
+*.dmg
+*.exe
+*.blockmap
+
+# OS / editor junk
+Thumbs.db
+*.mov
+*.mp4

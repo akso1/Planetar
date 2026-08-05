@@ -90,16 +90,16 @@ export function ForwardRoomPicker({
         aria-labelledby="forward-picker-title"
         className="relative w-full max-w-md max-h-[min(88vh,560px)] rounded-2xl border border-hairline bg-chatSidebar shadow-panel backdrop-blur-md overflow-hidden flex flex-col"
       >
-        <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-white/5 shrink-0">
+        <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-hairline shrink-0">
           <h2
             id="forward-picker-title"
-            className="text-[16px] font-semibold text-white/95 truncate"
+            className="text-[16px] font-semibold text-ink truncate"
           >
             {title}
           </h2>
           <button
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
             onClick={onClose}
             disabled={busy}
             aria-label="Закрыть"
@@ -111,7 +111,7 @@ export function ForwardRoomPicker({
         <div className="px-3 pt-3 pb-2 shrink-0">
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center">
-              <Search className="w-4 h-4 text-white/35" strokeWidth={2} />
+              <Search className="w-4 h-4 text-ink-faint" strokeWidth={2} />
             </span>
             <input
               type="search"
@@ -119,14 +119,14 @@ export function ForwardRoomPicker({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Поиск чатов"
               autoFocus
-              className="w-full h-10 rounded-xl bg-black/30 border border-white/10 pl-9 pr-3 text-[14px] text-white/90 placeholder:text-white/35 outline-none focus:border-white/25"
+              className="w-full h-10 rounded-xl bg-black/30 border border-hairline pl-9 pr-3 text-[14px] text-ink placeholder:text-ink-faint outline-none focus:border-hairline-strong"
             />
           </div>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
           {filtered.length === 0 ? (
-            <div className="py-10 text-center text-[13px] text-white/40">
+            <div className="py-10 text-center text-[13px] text-ink-faint">
               Ничего не найдено
             </div>
           ) : (
@@ -144,8 +144,8 @@ export function ForwardRoomPicker({
           )}
         </div>
 
-        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-white/5 bg-[#15202b]">
-          <span className="text-[13px] text-white/50">
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-hairline bg-[var(--menu-surface-solid)]">
+          <span className="text-[13px] text-ink-muted">
             {selected.size > 0
               ? `Выбрано: ${selected.size}`
               : 'Выберите чаты'}
@@ -157,8 +157,8 @@ export function ForwardRoomPicker({
             className={clsx(
               'px-4 py-2 rounded-full text-[13.5px] font-medium transition-colors',
               selected.size === 0 || busy
-                ? 'bg-white/10 text-white/35 cursor-not-allowed'
-                : 'bg-accent hover:bg-accent-hover text-white',
+                ? 'bg-surface-inset text-ink-faint cursor-not-allowed'
+                : 'bg-accent hover:bg-accent-hover text-[color:var(--color-on-accent)]',
             )}
           >
             {busy ? 'Отправка…' : 'Переслать'}
@@ -192,7 +192,7 @@ function ForwardRoomRow({
         onClick={onToggle}
         className={clsx(
           'w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors',
-          selected ? 'bg-accent/35' : 'hover:bg-white/6',
+          selected ? 'bg-accent/35' : 'hover:bg-surface-inset',
           disabled && 'opacity-60',
         )}
       >
@@ -201,7 +201,7 @@ function ForwardRoomRow({
             'shrink-0 w-[18px] h-[18px] rounded-md border flex items-center justify-center',
             selected
               ? 'bg-[#5b9fd4] border-[#5b9fd4]'
-              : 'border-white/25 bg-transparent',
+              : 'border-hairline-strong bg-transparent',
           )}
           aria-hidden
         >
@@ -218,7 +218,7 @@ function ForwardRoomRow({
           )}
         </span>
         <MxcAvatar mxcUrl={mxc} name={name} size={40} className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-[14px] text-white/90">
+        <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
           {name}
         </span>
       </button>

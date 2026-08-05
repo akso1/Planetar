@@ -6,6 +6,8 @@ type Props = {
   children: ReactNode
   /** Soft boundary: show inline recovery instead of full-screen */
   soft?: boolean
+  /** Label stored in Settings → Errors (e.g. sidebar / chat_area) */
+  name?: string
 }
 
 type State = {
@@ -25,17 +27,23 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     const roomId = useRoomStore.getState().activeRoomId
-    reportAppError({
-      error,
-      source: 'react',
-      stack: [error.stack, errorInfo.componentStack]
-        .filter(Boolean)
-        .join('\n\n'),
-      context: {
-        roomId,
-        screen: this.props.soft ? 'soft_boundary' : 'root_boundary',
-      },
-    })
+    try {
+      reportAppError({
+        error,
+        source: 'react',
+        stack: [error.stack, errorInfo.componentStack]
+          .filter(Boolean)
+          .join('\n\n'),
+        context: {
+          roomId,
+          screen:
+            this.props.name ||
+            (this.props.soft ? 'soft_boundary' : 'root_boundary'),
+        },
+      })
+    } catch (err) {
+      console.error('[ErrorBoundary] reportAppError failed', err)
+    }
   }
 
   private recover = () => {
@@ -47,15 +55,21 @@ export class ErrorBoundary extends Component<Props, State> {
 
     if (this.props.soft) {
       return (
-        <div className="m-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-100">
+        <div className="m-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-100 min-h-0 flex flex-col justify-center">
           <div className="font-semibold mb-1">Этот блок интерфейса сбойнул</div>
           <div className="text-amber-100/75 mb-3">
-            Ошибка сохранена в Настройки → Ошибки. Можно продолжить работу.
+            {this.props.name ? (
+              <>
+                Блок «{this.props.name}». Ошибка сохранена в Настройки → Ошибки.
+              </>
+            ) : (
+              <>Ошибка сохранена в Настройки → Ошибки. Можно продолжить работу.</>
+            )}
           </div>
           <button
             type="button"
             onClick={this.recover}
-            className="rounded-lg bg-white/10 hover:bg-white/15 px-3 py-1.5 text-[12.5px] font-medium"
+            className="self-start rounded-lg bg-surface-inset hover:bg-surface-inset px-3 py-1.5 text-[12.5px] font-medium"
           >
             Восстановить блок
           </button>
@@ -69,13 +83,13 @@ export class ErrorBoundary extends Component<Props, State> {
           <h1 className="text-lg font-semibold text-chatText mb-2">
             Что-то пошло не так
           </h1>
-          <p className="text-[13.5px] text-white/55 leading-relaxed mb-4">
+          <p className="text-[13.5px] text-ink-muted leading-relaxed mb-4">
             Интерфейс упал, но приложение не закрылось. Ошибка записана в{' '}
-            <span className="text-white/80">Настройки → Ошибки</span> — оттуда
+            <span className="text-ink">Настройки → Ошибки</span> — оттуда
             её можно отправить по почте.
           </p>
           {this.state.error && (
-            <pre className="mb-4 max-h-28 overflow-auto rounded-lg bg-black/30 border border-white/5 p-3 text-[11px] text-red-300/90 whitespace-pre-wrap break-words">
+            <pre className="mb-4 max-h-28 overflow-auto rounded-lg bg-black/30 border border-hairline p-3 text-[11px] text-red-300/90 whitespace-pre-wrap break-words">
               {this.state.error.message}
             </pre>
           )}
@@ -90,7 +104,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="flex-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-chatText text-sm font-medium py-2.5"
+              className="flex-1 rounded-lg bg-surface-inset hover:bg-surface-inset border border-hairline text-chatText text-sm font-medium py-2.5"
             >
               Перезагрузить
             </button>

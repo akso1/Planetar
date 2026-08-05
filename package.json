@@ -1,12 +1,18 @@
 {
   "name": "matrix-macos-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.14.0",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build && electron-builder",
+    "build:dmg": "vite build && electron-builder --mac dmg",
+    "build:win": "vite build && electron-builder --win portable --x64",
+    "sign:mac-notifications": "bash scripts/sign-mac-for-notifications.sh",
+    "twemoji:fetch": "bash scripts/fetch-twemoji.sh",
+    "prebuild:dmg": "test -d public/twemoji/72x72 || npm run twemoji:fetch",
+    "prebuild:win": "test -d public/twemoji/72x72 || npm run twemoji:fetch",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -28,6 +34,72 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.14"
+  },
+  "build": {
+    "appId": "app.planetar.desktop",
+    "productName": "Planetar",
+    "copyright": "Copyright © Planetar",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Planetar may use the camera for Matrix calls and media.",
+        "NSMicrophoneUsageDescription": "Planetar may use the microphone for voice messages and calls."
+      }
+    },
+    "dmg": {
+      "title": "Planetar",
+      "artifactName": "Planetar-${version}-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Planetar-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Planetar-${version}-${arch}-portable.${ext}"
+    }
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

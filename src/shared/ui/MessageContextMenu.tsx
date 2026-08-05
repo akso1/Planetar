@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { ArrowLeft, BookmarkPlus, CheckSquare, Copy, Forward, Pencil, Pin, PinOff, Plus, Quote, Reply, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, Ban, BookmarkPlus, CheckSquare, Copy, Forward, MessagesSquare, Pencil, Pin, PinOff, Plus, Quote, Reply, Search, Trash2, UserX } from 'lucide-react'
 import {
   clampMenuPosition,
   type MenuPos,
@@ -114,10 +114,14 @@ export type MessageContextMenuProps = {
   isPinnedForSelf?: boolean
   canSaveGif?: boolean
   canForward?: boolean
+  canKickSender?: boolean
+  canBanSender?: boolean
   /** Selected text inside the message — enables «Цитировать» */
   quoteText?: string | null
   onClose: () => void
   onReply: () => void
+  /** Open MSC3440 thread panel for this message */
+  onReplyInThread?: () => void
   /** Reply with quoted selection (shown when quoteText is set) */
   onQuote?: () => void
   onForward?: () => void
@@ -125,6 +129,8 @@ export type MessageContextMenuProps = {
   onEdit: () => void
   onCopy: () => void
   onDelete: () => void
+  onKickSender?: () => void
+  onBanSender?: () => void
   onPinForEveryone?: () => void
   onUnpinForEveryone?: () => void
   onPinForSelf?: () => void
@@ -147,15 +153,20 @@ export function MessageContextMenu({
   isPinnedForSelf,
   canSaveGif,
   canForward = true,
+  canKickSender = false,
+  canBanSender = false,
   quoteText,
   onClose,
   onReply,
+  onReplyInThread,
   onQuote,
   onForward,
   onSelect,
   onEdit,
   onCopy,
   onDelete,
+  onKickSender,
+  onBanSender,
   onPinForEveryone,
   onUnpinForEveryone,
   onPinForSelf,
@@ -315,8 +326,9 @@ export function MessageContextMenu({
       ref={menuRef}
       role="menu"
       className={clsx(
-        'tg-ctx-menu fixed z-[1000] rounded-xl border border-white/12',
-        'bg-[#1c2733]/92 shadow-2xl shadow-black/50 backdrop-blur-xl overflow-hidden',
+        'tg-ctx-menu fixed z-[1000] rounded-xl border border-hairline',
+        'bg-[var(--menu-surface-solid)] overflow-hidden',
+        'animate-[tg-ctx-pop_160ms_cubic-bezier(0.22,1,0.36,1)_both]',
         view === 'emoji' ? 'w-[280px]' : 'min-w-[220px] w-[240px]',
       )}
       style={{
@@ -335,7 +347,7 @@ export function MessageContextMenu({
                 key={emoji}
                 type="button"
                 role="menuitem"
-                className="flex-1 h-9 rounded-lg text-[18px] hover:bg-white/10 active:scale-95 transition-colors inline-flex items-center justify-center"
+                className="flex-1 h-9 rounded-lg text-[18px] hover:bg-surface-inset active:scale-95 transition-colors inline-flex items-center justify-center"
                 onClick={() => pick(emoji)}
                 title={emoji}
               >
@@ -345,7 +357,7 @@ export function MessageContextMenu({
             <button
               type="button"
               role="menuitem"
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              className="w-9 h-9 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
               aria-label="Все реакции"
               title="Все реакции"
               onClick={(e) => {
@@ -357,7 +369,7 @@ export function MessageContextMenu({
             </button>
           </div>
 
-          <div className="mx-2 h-px bg-white/10" />
+          <div className="mx-2 h-px bg-surface-inset" />
 
           <div className="py-1.5 px-1.5">
             {quoteText && onQuote && (
@@ -378,6 +390,16 @@ export function MessageContextMenu({
                 onClose()
               }}
             />
+            {onReplyInThread && (
+              <MenuItem
+                icon={<MessagesSquare className="w-4 h-4" />}
+                label="Ответить в ветке"
+                onClick={() => {
+                  onReplyInThread()
+                  onClose()
+                }}
+              />
+            )}
             {canForward && onForward && (
               <MenuItem
                 icon={<Forward className="w-4 h-4" />}
@@ -437,7 +459,7 @@ export function MessageContextMenu({
             )}
             {isOwn && canDelete && (
               <>
-                <div className="mx-1 my-1 h-px bg-white/10" />
+                <div className="mx-1 my-1 h-px bg-surface-inset" />
                 <MenuItem
                   icon={<Trash2 className="w-4 h-4" />}
                   label="Удалить"
@@ -449,6 +471,33 @@ export function MessageContextMenu({
                 />
               </>
             )}
+            {!isOwn && (canKickSender || canBanSender) && (
+              <>
+                <div className="mx-1 my-1 h-px bg-surface-inset" />
+                {canKickSender && onKickSender && (
+                  <MenuItem
+                    icon={<UserX className="w-4 h-4" />}
+                    label="Исключить из чата"
+                    danger
+                    onClick={() => {
+                      onKickSender()
+                      onClose()
+                    }}
+                  />
+                )}
+                {canBanSender && onBanSender && (
+                  <MenuItem
+                    icon={<Ban className="w-4 h-4" />}
+                    label="Заблокировать"
+                    danger
+                    onClick={() => {
+                      onBanSender()
+                      onClose()
+                    }}
+                  />
+                )}
+              </>
+            )}
           </div>
         </div>
       ) : view === 'pin' ? (
@@ -456,16 +505,16 @@ export function MessageContextMenu({
           <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
             <button
               type="button"
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
               aria-label="Назад"
               title="Назад"
               onClick={goBack}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <span className="text-[13px] font-medium text-white/80">Закрепить</span>
+            <span className="text-[13px] font-medium text-ink">Закрепить</span>
           </div>
-          <div className="mx-2 h-px bg-white/10" />
+          <div className="mx-2 h-px bg-surface-inset" />
           <div className="py-1.5 px-1.5">
             {canPinForEveryone && onPinForEveryone && (
               <MenuItem
@@ -494,16 +543,16 @@ export function MessageContextMenu({
           <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
             <button
               type="button"
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
               aria-label="Назад"
               title="Назад"
               onClick={goBack}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <span className="text-[13px] font-medium text-white/80">Открепить</span>
+            <span className="text-[13px] font-medium text-ink">Открепить</span>
           </div>
-          <div className="mx-2 h-px bg-white/10" />
+          <div className="mx-2 h-px bg-surface-inset" />
           <div className="py-1.5 px-1.5">
             {canPinForEveryone && isPinnedForEveryone && onUnpinForEveryone && (
               <MenuItem
@@ -532,7 +581,7 @@ export function MessageContextMenu({
           <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
             <button
               type="button"
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
               aria-label="Назад"
               title="Назад"
               onClick={goBack}
@@ -545,7 +594,7 @@ export function MessageContextMenu({
                 aria-hidden
               >
                 <Search
-                  className="block w-3.5 h-3.5 text-white/35"
+                  className="block w-3.5 h-3.5 text-ink-muted"
                   strokeWidth={2}
                 />
               </span>
@@ -555,7 +604,7 @@ export function MessageContextMenu({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Поиск"
-                className="w-full h-8 rounded-lg bg-black/30 border border-white/10 pl-8 pr-2.5 text-[13px] leading-none text-white/90 placeholder:text-white/35 outline-none focus:border-white/20"
+                className="tg-ctx-field w-full h-8 rounded-lg pl-8 pr-2.5 text-[13px] leading-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     e.stopPropagation()
@@ -568,7 +617,7 @@ export function MessageContextMenu({
 
           <div className="tg-ctx-emoji-scroll max-h-60 overflow-y-auto px-2 pb-2">
             {filtered.length === 0 ? (
-              <div className="py-8 text-center text-[12.5px] text-white/40">
+              <div className="py-8 text-center text-[12.5px] text-ink-faint">
                 Ничего не найдено
               </div>
             ) : (
@@ -577,7 +626,7 @@ export function MessageContextMenu({
                   <button
                     key={emoji}
                     type="button"
-                    className="aspect-square flex items-center justify-center rounded-lg text-2xl leading-none hover:bg-white/10 active:scale-95 transition-colors"
+                    className="aspect-square flex items-center justify-center rounded-lg text-2xl leading-none hover:bg-surface-inset active:scale-95 transition-colors"
                     onClick={() => pick(emoji)}
                     title={emoji}
                   >
@@ -614,10 +663,10 @@ function MenuItem({
         'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] text-left transition-colors',
         danger
           ? 'text-red-400 hover:bg-red-500/15'
-          : 'text-white/90 hover:bg-white/10',
+          : 'text-ink hover:bg-surface-inset',
       )}
     >
-      <span className={clsx('shrink-0', danger ? 'text-red-400' : 'text-white/55')}>
+      <span className={clsx('shrink-0', danger ? 'text-red-400' : 'text-ink-muted')}>
         {icon}
       </span>
       <span className="flex-1">{label}</span>

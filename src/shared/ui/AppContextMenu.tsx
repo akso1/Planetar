@@ -167,7 +167,7 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
     >
       <div
         ref={panelRef}
-        className="tg-ctx-menu min-w-[200px] max-w-[280px] rounded-xl border border-white/12 bg-[#1c2733]/94 shadow-2xl shadow-black/50 backdrop-blur-xl overflow-y-auto overscroll-contain py-1.5 px-1.5"
+        className="tg-ctx-menu min-w-[200px] max-w-[280px] rounded-xl border border-hairline bg-[var(--menu-surface-solid)] overflow-y-auto overscroll-contain py-1.5 px-1.5"
         style={{ maxHeight: maxH }}
       >
         {items.map((item) => {
@@ -175,7 +175,7 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
             return (
               <div
                 key={item.id}
-                className="my-1.5 mx-1 h-px bg-white/10"
+                className="my-1.5 mx-1 h-px tg-ctx-sep"
                 role="separator"
               />
             )
@@ -216,15 +216,15 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
                 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] text-left transition-colors disabled:opacity-40',
                 item.danger
                   ? 'text-red-400 hover:bg-red-500/15'
-                  : 'text-white/90 hover:bg-white/10',
-                openSubId === item.id && 'bg-white/10',
+                  : 'text-ink hover:bg-surface-inset',
+                openSubId === item.id && 'bg-surface-inset',
               )}
             >
               {item.icon && (
                 <span
                   className={clsx(
                     'shrink-0',
-                    item.danger ? 'text-red-400' : 'text-white/55',
+                    item.danger ? 'text-red-400' : 'text-ink-muted',
                   )}
                 >
                   {item.icon}
@@ -232,12 +232,12 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
               )}
               <span className="flex-1 truncate">{item.label}</span>
               {item.shortcut && !hasSub && (
-                <span className="shrink-0 text-[11.5px] text-white/35 tabular-nums tracking-wide pl-3">
+                <span className="shrink-0 text-[11.5px] text-ink-faint tabular-nums tracking-wide pl-3">
                   {item.shortcut}
                 </span>
               )}
               {hasSub && (
-                <ChevronRight className="w-3.5 h-3.5 shrink-0 text-white/35" />
+                <ChevronRight className="w-3.5 h-3.5 shrink-0 text-ink-faint" />
               )}
             </button>
           )
@@ -248,7 +248,7 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
         <div
           ref={subRef}
           role="menu"
-          className="tg-ctx-menu fixed z-[1101] min-w-[220px] max-w-[300px] rounded-xl border border-white/12 bg-[#1c2733]/96 shadow-2xl shadow-black/50 backdrop-blur-xl overflow-y-auto overscroll-contain py-1.5 px-1.5"
+          className="tg-ctx-menu fixed z-[1101] min-w-[220px] max-w-[300px] rounded-xl border border-hairline bg-[var(--menu-surface-solid)] overflow-y-auto overscroll-contain py-1.5 px-1.5"
           style={{
             left: subPos.left,
             top: subPos.top,
@@ -264,7 +264,7 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
               return (
                 <div
                   key={item.id}
-                  className="my-1.5 mx-1 h-px bg-white/10"
+                  className="my-1.5 mx-1 h-px tg-ctx-sep"
                   role="separator"
                 />
               )
@@ -284,14 +284,14 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
                   'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] text-left transition-colors disabled:opacity-40',
                   item.danger
                     ? 'text-red-400 hover:bg-red-500/15'
-                    : 'text-white/90 hover:bg-white/10',
+                    : 'text-ink hover:bg-surface-inset',
                 )}
               >
                 {item.icon && (
                   <span
                     className={clsx(
                       'shrink-0 w-5 text-center text-[12px] font-semibold',
-                      item.danger ? 'text-red-400' : 'text-white/45',
+                      item.danger ? 'text-red-400' : 'text-ink-faint',
                     )}
                   >
                     {item.icon}
@@ -299,7 +299,7 @@ export function AppContextMenu({ x, y, items, onClose }: AppContextMenuProps) {
                 )}
                 <span className="flex-1 truncate">{item.label}</span>
                 {item.shortcut && (
-                  <span className="shrink-0 text-[11.5px] text-white/35 tabular-nums tracking-wide pl-3">
+                  <span className="shrink-0 text-[11.5px] text-ink-faint tabular-nums tracking-wide pl-3">
                     {item.shortcut}
                   </span>
                 )}

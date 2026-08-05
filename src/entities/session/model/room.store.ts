@@ -57,7 +57,7 @@ export function getSpaceChildRooms(
   return entries.map((e) => e.room)
 }
 
-/** Sum unread counts in child rooms of all joined spaces (deduped). */
+/** Sum unread counts in child rooms of all joined spaces (deduped, nested). */
 export function getSpacesChildUnreadTotal(
   spaceRooms: Room[],
   client: MatrixClient,
@@ -65,14 +65,35 @@ export function getSpacesChildUnreadTotal(
 ): number {
   const seen = new Set<string>()
   let sum = 0
-  for (const space of spaceRooms) {
+
+  const walk = (space: Room, depth: number) => {
+    if (depth > 4) return
     for (const child of getSpaceChildRooms(space, client)) {
-      if (child.isSpaceRoom() || seen.has(child.roomId)) continue
+      if (seen.has(child.roomId)) continue
       seen.add(child.roomId)
+      if (child.isSpaceRoom()) {
+        walk(child, depth + 1)
+        continue
+      }
       sum += getRoomUnread(child, myUserId)
     }
   }
+
+  for (const space of spaceRooms) {
+    if (seen.has(space.roomId)) continue
+    seen.add(space.roomId)
+    walk(space, 0)
+  }
   return sum
+}
+
+/** Unread total for one space's joined child rooms (nested). */
+export function getSpaceChildUnreadTotal(
+  space: Room,
+  client: MatrixClient,
+  myUserId?: string | null,
+): number {
+  return getSpacesChildUnreadTotal([space], client, myUserId)
 }
 
 function isLocalEchoEventId(id: string | undefined | null): boolean {
@@ -303,6 +324,10 @@ interface RoomState {
   pendingUnreadEventId: string | null
   /** Open room profile panel for this room id */
   profileRoomId: string | null
+  /** When opening profile from an @mention, scroll/highlight this member */
+  profileFocusUserId: string | null
+  /** Thread panel root event id (MSC3440), mutually exclusive with profile */
+  threadRootId: string | null
   actions: {
     init: (client: MatrixClient) => void
     cleanup: () => void
@@ -311,8 +336,10 @@ interface RoomState {
     openRoomAtEvent: (roomId: string, eventId: string) => void
     clearPendingScrollEvent: () => void
     clearPendingUnreadEvent: () => void
-    openRoomProfile: (roomId: string) => void
+    openRoomProfile: (roomId: string, focusUserId?: string | null) => void
     closeRoomProfile: () => void
+    openThread: (rootEventId: string) => void
+    closeThread: () => void
     markRoomAsRead: (roomId: string) => Promise<void>
     /** Persist read markers for every unread joined room (sequential, retries). */
     markAllRoomsAsRead: () => Promise<void>
@@ -676,6 +703,8 @@ export const useRoomStore = create<RoomState>()(
       pendingScrollNonce: 0,
       pendingUnreadEventId: null,
       profileRoomId: null,
+      profileFocusUserId: null,
+      threadRootId: null,
       actions: {
         setActiveRoomId: (roomId: string | null) => {
           let pendingUnreadEventId: string | null = null
@@ -686,16 +715,25 @@ export const useRoomStore = create<RoomState>()(
               pendingUnreadEventId = findFirstUnreadEventId(room, myId)
             }
           }
-          set((state) => ({
-            activeRoomId: roomId,
-            pendingUnreadEventId,
-            // Clear stale jump when simply switching rooms via the list
-            pendingScrollEventId: null,
-            profileRoomId:
-              roomId && state.profileRoomId === roomId
-                ? state.profileRoomId
+          set((state) => {
+            const keepProfile =
+              !!roomId && state.profileRoomId === roomId
+            return {
+              activeRoomId: roomId,
+              pendingUnreadEventId,
+              // Clear stale jump when simply switching rooms via the list
+              pendingScrollEventId: null,
+              profileRoomId: keepProfile ? state.profileRoomId : null,
+              profileFocusUserId: keepProfile
+                ? state.profileFocusUserId
                 : null,
-          }))
+              // Thread panel is room-scoped; close when switching away
+              threadRootId:
+                roomId && state.activeRoomId === roomId
+                  ? state.threadRootId
+                  : null,
+            }
+          })
           pushBreadcrumb('open_room', { roomId: roomId ?? null })
           // Only auto-mark when there is nothing unread. If there are unreads,
           // MessageTimeline marks read when the user actually reaches the bottom
@@ -713,6 +751,8 @@ export const useRoomStore = create<RoomState>()(
             // Don't mix unread-open intent with an explicit event jump
             pendingUnreadEventId: null,
             profileRoomId: null,
+            profileFocusUserId: null,
+            threadRootId: null,
           }))
         },
         clearPendingScrollEvent: () => {
@@ -721,17 +761,30 @@ export const useRoomStore = create<RoomState>()(
         clearPendingUnreadEvent: () => {
           set({ pendingUnreadEventId: null })
         },
-        openRoomProfile: (roomId: string) => {
+        openRoomProfile: (roomId: string, focusUserId?: string | null) => {
           set({
             activeRoomId: roomId,
             profileRoomId: roomId,
+            profileFocusUserId: focusUserId?.trim() || null,
+            threadRootId: null,
             // Don't carry a jump/unread intent from another room into profile open
             pendingScrollEventId: null,
             pendingUnreadEventId: null,
           })
         },
         closeRoomProfile: () => {
-          set({ profileRoomId: null })
+          set({ profileRoomId: null, profileFocusUserId: null })
+        },
+        openThread: (rootEventId: string) => {
+          if (!rootEventId) return
+          set({
+            threadRootId: rootEventId,
+            profileRoomId: null,
+            profileFocusUserId: null,
+          })
+        },
+        closeThread: () => {
+          set({ threadRootId: null })
         },
         markRoomAsRead,
         markAllRoomsAsRead,
@@ -819,6 +872,8 @@ export const useRoomStore = create<RoomState>()(
             pendingScrollNonce: 0,
             pendingUnreadEventId: null,
             profileRoomId: null,
+            profileFocusUserId: null,
+            threadRootId: null,
           })
         },
       },

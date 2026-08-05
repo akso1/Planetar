@@ -3,7 +3,7 @@ import { clsx } from 'clsx'
 import { Room } from 'matrix-js-sdk'
 import { Pencil, Pin, BellOff, Paperclip } from 'lucide-react'
 import { useSessionStore } from '@/entities/session/model/session'
-import { getRoomUnread } from '@/entities/session/model/room.store'
+import { getRoomUnread, getSpaceChildUnreadTotal } from '@/entities/session/model/room.store'
 import { MxcAvatar } from '@/shared/ui/MxcAvatar'
 import { getRoomLastMessagePreview } from '@/shared/ui/FormattedPreview'
 import type { ChatPeekAnchor } from '@/widgets/ChatPeekPopover'
@@ -38,7 +38,12 @@ export function RoomItem({
   const client = useSessionStore((state) => state.client)
   const roomName = room.name
 
-  const unreadCount = getRoomUnread(room, client?.getUserId() ?? null)
+  const myId = client?.getUserId() ?? null
+  const unreadCount = room.isSpaceRoom()
+    ? client
+      ? getSpaceChildUnreadTotal(room, client, myId)
+      : 0
+    : getRoomUnread(room, myId)
   const avatarMxc = room.getMxcAvatarUrl?.() ?? null
 
   const { plain, node, time, edited } = getRoomLastMessagePreview(room)

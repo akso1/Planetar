@@ -15,9 +15,15 @@ import {
   Bell,
   BellOff,
   ChevronLeft,
+  Copy,
+  FolderPlus,
+  Link2,
+  FolderMinus,
+  Plus,
 } from 'lucide-react'
-import type { MatrixClient, Room } from 'matrix-js-sdk'
-import { Preset } from 'matrix-js-sdk'
+import type { MatrixClient, MatrixEvent, Room } from 'matrix-js-sdk'
+import { EventType, Preset, RoomStateEvent } from 'matrix-js-sdk'
+import { copyTextToClipboard } from '@/shared/lib/clipboard'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import {
@@ -28,7 +34,6 @@ import {
 } from '@/entities/session/model/room.store'
 import { useSessionStore } from '@/entities/session/model/session'
 import { getGradient } from '@/shared/lib/color'
-import { ALBUM_CAPTION_KEY } from '@/shared/lib/sendMedia'
 import { AppContextMenu } from '@/shared/ui/AppContextMenu'
 import { useChatListPrefsStore } from '@/shared/lib/chatListPrefs'
 import { useNotificationPrefsStore } from '@/shared/lib/notificationPrefs'
@@ -36,11 +41,28 @@ import {
   useComposerDraftsStore,
   type ComposerDraft,
 } from '@/shared/lib/composerDrafts'
+import {
+  GlobalMessageSearchSession,
+  GLOBAL_SEARCH_PAGE_SIZE,
+  type GlobalMessageHit,
+} from '@/shared/lib/globalMessageSearch'
+import { ChatListSkeleton } from './ChatListSkeleton'
+import { ChatListResizeHandle } from './ChatListResizeHandle'
 import { RoomItem } from './RoomItem'
 import {
   ChatPeekPopover,
   type ChatPeekAnchor,
 } from './ChatPeekPopover'
+import { SpaceNameDialog } from './SpaceNameDialog'
+import { AddRoomToSpaceDialog } from './AddRoomToSpaceDialog'
+import {
+  addRoomToSpace,
+  canManageSpaceChildren,
+  createRoomInSpace,
+  createSpace,
+  removeRoomFromSpace,
+} from '@/shared/lib/spaces'
+import { usePanelLayoutStore } from '@/shared/lib/panelLayout'
 
 const MXID_RE = /^@[A-Za-z0-9._=\-/]+:.+$/
 
@@ -61,50 +83,7 @@ type PublicRoomHit = {
   alias?: string
 }
 
-type MessageHit = {
-  eventId: string
-  roomId: string
-  roomName: string
-  senderId: string
-  senderName: string
-  body: string
-  ts: number
-  highlights: string[]
-}
-
-/** Prefer jumping to the original message when the hit is an edit event. */
-function canonicalSearchEventId(
-  eventId: string,
-  content: Record<string, unknown> | undefined | null,
-): string | null {
-  const rel = content?.['m.relates_to'] as
-    | { rel_type?: string; event_id?: string }
-    | undefined
-  if (rel?.rel_type === 'm.annotation') return null
-  if (rel?.rel_type === 'm.replace') {
-    return typeof rel.event_id === 'string' && rel.event_id
-      ? rel.event_id
-      : null
-  }
-  return eventId
-}
-
-function messageBodyFromContent(
-  content: Record<string, unknown> | undefined | null,
-): string {
-  if (!content) return ''
-  if (typeof content.body === 'string' && content.body) return content.body
-  const newContent = content['m.new_content'] as
-    | Record<string, unknown>
-    | undefined
-  if (typeof newContent?.body === 'string' && newContent.body) {
-    return newContent.body
-  }
-  if (typeof content[ALBUM_CAPTION_KEY] === 'string') {
-    return content[ALBUM_CAPTION_KEY] as string
-  }
-  return ''
-}
+type MessageHit = GlobalMessageHit
 
 function roomMatchesQuery(room: Room, q: string): boolean {
   if (!q) return true
@@ -121,11 +100,13 @@ function roomMatchesQuery(room: Room, q: string): boolean {
 function draftPreviewText(d: ComposerDraft | undefined): string | undefined {
   if (!d) return undefined
   const raw = d.text.replace(/\s+/g, ' ').trim()
-  if (!raw && d.mentionUserIds.length === 0 && d.files.length === 0) {
-    return undefined
-  }
-  const text = raw.length > 40 ? `${raw.slice(0, 40)}…` : raw
-  return text || 'Вложение'
+  if (raw) return raw.length > 40 ? `${raw.slice(0, 40)}…` : raw
+  if (d.files.length > 0) return 'Вложение'
+  return undefined
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  return copyTextToClipboard(text)
 }
 
 async function lookupPeople(
@@ -202,150 +183,6 @@ async function lookupPublicRooms(
   }
 }
 
-async function searchMessagesLocal(
-  client: MatrixClient,
-  query: string,
-): Promise<MessageHit[]> {
-  const trimmed = query.trim()
-  if (!trimmed) return []
-  const q = trimmed.toLowerCase()
-  const highlights = [trimmed]
-  const hits: MessageHit[] = []
-
-  for (const room of client.getRooms()) {
-    if (room.getMyMembership() !== 'join') continue
-    if (room.isSpaceRoom()) continue
-
-    for (const ev of room.getLiveTimeline().getEvents()) {
-      if (ev.isRedacted()) continue
-      const type = ev.getType()
-      if (type !== 'm.room.message' && type !== 'm.room.encrypted') continue
-      if (ev.isDecryptionFailure()) continue
-
-      // Edit / reaction events are not rendered in the timeline — skip or
-      // remap so we don't show a duplicate that can't scroll.
-      if (ev.isRelation?.('m.annotation')) continue
-      if (ev.isRelation?.('m.replace')) continue
-
-      const content = ev.getContent() as Record<string, unknown>
-      const body = messageBodyFromContent(content)
-      if (!body || !body.toLowerCase().includes(q)) continue
-
-      const eventId = ev.getId()
-      if (!eventId) continue
-      const jumpId = canonicalSearchEventId(eventId, content)
-      if (!jumpId) continue
-
-      const senderId = ev.getSender() || ''
-      const member = senderId ? room.getMember(senderId) : null
-      hits.push({
-        eventId: jumpId,
-        roomId: room.roomId,
-        roomName: room.name || room.roomId,
-        senderId,
-        senderName:
-          member?.name ||
-          senderId.split(':')[0]?.substring(1) ||
-          senderId ||
-          'Unknown',
-        body,
-        ts: ev.getTs(),
-        highlights,
-      })
-    }
-  }
-
-  return hits.sort((a, b) => b.ts - a.ts)
-}
-
-async function searchMessagesServer(
-  client: MatrixClient,
-  query: string,
-): Promise<MessageHit[]> {
-  const trimmed = query.trim()
-  if (!trimmed) return []
-
-  const results = await client.search({
-    body: {
-      search_categories: {
-        room_events: {
-          search_term: trimmed,
-          order_by: 'recent' as any,
-          event_context: {
-            before_limit: 0,
-            after_limit: 0,
-            include_profile: true,
-          },
-        },
-      },
-    },
-  })
-
-  const roomEvents = results.search_categories.room_events
-  const highlights = roomEvents.highlights?.length
-    ? roomEvents.highlights
-    : [trimmed]
-  const hits: MessageHit[] = []
-
-  for (const item of roomEvents.results || []) {
-    const ev = item.result
-    if (!ev?.event_id || !ev.room_id) continue
-    const content = (ev.content || {}) as Record<string, unknown>
-    const jumpId = canonicalSearchEventId(ev.event_id, content)
-    if (!jumpId) continue
-
-    const body = messageBodyFromContent(content)
-    if (!body) continue
-
-    const room = client.getRoom(ev.room_id)
-    const profile = item.context?.profile_info?.[ev.sender]
-    const member = room?.getMember(ev.sender)
-    const senderName =
-      profile?.displayname ||
-      member?.name ||
-      ev.sender?.split(':')[0]?.substring(1) ||
-      ev.sender ||
-      'Unknown'
-
-    hits.push({
-      eventId: jumpId,
-      roomId: ev.room_id,
-      roomName: room?.name || ev.room_id,
-      senderId: ev.sender,
-      senderName,
-      body,
-      ts: ev.origin_server_ts || 0,
-      highlights,
-    })
-  }
-
-  return hits
-}
-
-/**
- * Server search cannot see E2EE plaintext — merge with local timeline scan.
- */
-async function searchMessages(
-  client: MatrixClient,
-  query: string,
-): Promise<MessageHit[]> {
-  const local = await searchMessagesLocal(client, query)
-  let server: MessageHit[] = []
-  try {
-    server = await searchMessagesServer(client, query)
-  } catch (err) {
-    console.warn('Server message search failed (common for E2EE)', err)
-  }
-
-  // room+event — event ids alone are not guaranteed unique across rooms
-  const byKey = new Map<string, MessageHit>()
-  for (const h of server) byKey.set(`${h.roomId}:${h.eventId}`, h)
-  // Local wins for body/snippet accuracy in encrypted rooms
-  for (const h of local) byKey.set(`${h.roomId}:${h.eventId}`, h)
-
-  return [...byKey.values()].sort((a, b) => b.ts - a.ts)
-}
-
 function HighlightedSnippet({
   text,
   highlights,
@@ -420,6 +257,7 @@ export function ChatList() {
   const pruneMutedIds = useNotificationPrefsStore((s) => s.pruneMutedIds)
   const mutedSet = useMemo(() => new Set(mutedRoomIds), [mutedRoomIds])
   const draftsMap = useComposerDraftsStore((s) => s.map)
+  const chatListWidth = usePanelLayoutStore((s) => s.chatListWidth)
 
   useEffect(() => {
     useNotificationPrefsStore.getState().hydrate()
@@ -429,22 +267,46 @@ export function ChatList() {
   const [tab, setTab] = useState<SearchTab>('chats')
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchCursor, setSearchCursor] = useState(-1)
+
+  useEffect(() => {
+    setSearchCursor(-1)
+  }, [activeRoomId])
+
   const [remoteLoading, setRemoteLoading] = useState(false)
   const [people, setPeople] = useState<UserHit[]>([])
   const [publicRooms, setPublicRooms] = useState<PublicRoomHit[]>([])
   const [messageHits, setMessageHits] = useState<MessageHit[]>([])
+  const [messageVisibleCount, setMessageVisibleCount] = useState(
+    GLOBAL_SEARCH_PAGE_SIZE,
+  )
+  const [messageSearchBusy, setMessageSearchBusy] = useState(false)
+  const [messageCanDeepen, setMessageCanDeepen] = useState(false)
+  const [messageSearchStatus, setMessageSearchStatus] = useState('')
+  const messageSearchRef = useRef<GlobalMessageSearchSession | null>(null)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [roomMenu, setRoomMenu] = useState<{
     x: number
     y: number
     room: Room
   } | null>(null)
+  const [searchMenu, setSearchMenu] = useState<
+    | { kind: 'message'; x: number; y: number; hit: MessageHit }
+    | { kind: 'person'; x: number; y: number; user: UserHit }
+    | null
+  >(null)
   const [peek, setPeek] = useState<{
     room: Room
     anchor: ChatPeekAnchor
   } | null>(null)
   const [pinDragOrder, setPinDragOrder] = useState<string[] | null>(null)
-  const [openSpaceId, setOpenSpaceId] = useState<string | null>(null)
+  /** Stack of space room ids: root → … → current. Empty = top-level spaces list. */
+  const [spacePath, setSpacePath] = useState<string[]>([])
+  const [spaceChildrenTick, setSpaceChildrenTick] = useState(0)
+  const [spaceDialog, setSpaceDialog] = useState<
+    null | 'create-space' | 'create-room' | 'add-room'
+  >(null)
+  const [spaceActionBusy, setSpaceActionBusy] = useState(false)
+  const [spaceActionError, setSpaceActionError] = useState<string | null>(null)
   const pinDragOrderRef = useRef<string[] | null>(null)
   const pinDragMovedRef = useRef(false)
 
@@ -454,13 +316,39 @@ export function ChatList() {
   }, [])
 
   useEffect(() => {
-    setOpenSpaceId(null)
+    setSpacePath([])
   }, [roomFilter])
+
+  const openSpaceId = spacePath.length ? spacePath[spacePath.length - 1] : null
 
   const openSpace = useMemo(() => {
     if (!openSpaceId || !client) return null
     return client.getRoom(openSpaceId)
   }, [openSpaceId, client])
+
+  const spaceBreadcrumb = useMemo(() => {
+    if (!client || spacePath.length === 0) return []
+    return spacePath.map((id) => {
+      const room = client.getRoom(id)
+      return { id, name: room?.name || 'Пространство' }
+    })
+  }, [client, spacePath])
+
+  const enterSpace = useCallback((roomId: string) => {
+    setSpacePath((prev) => [...prev, roomId])
+    setQuery('')
+    setSearchCursor(-1)
+  }, [])
+
+  const popSpace = useCallback(() => {
+    setSpacePath((prev) => prev.slice(0, -1))
+    setSearchCursor(-1)
+  }, [])
+
+  const jumpSpaceTo = useCallback((index: number) => {
+    setSpacePath((prev) => prev.slice(0, index + 1))
+    setSearchCursor(-1)
+  }, [])
 
   const filteredByFolder = useMemo(() => {
     switch (roomFilter) {
@@ -484,10 +372,31 @@ export function ChatList() {
 
   const matchedSpaceChildren = useMemo(() => {
     if (roomFilter !== 'spaces' || !openSpace || !client) return []
+    void spaceChildrenTick
     return getSpaceChildRooms(openSpace, client).filter((r) =>
       roomMatchesQuery(r, q),
     )
-  }, [roomFilter, openSpace, client, q])
+  }, [roomFilter, openSpace, client, q, spaceChildrenTick])
+
+  const canEditOpenSpace = useMemo(() => {
+    if (!openSpace || !client) return false
+    return canManageSpaceChildren(openSpace, client.getUserId())
+  }, [openSpace, client, spaceChildrenTick])
+
+  useEffect(() => {
+    if (!openSpace || roomFilter !== 'spaces') return
+    const bump = () => {
+      setSpaceChildrenTick((n) => n + 1)
+      refreshRooms()
+    }
+    const onState = (event: MatrixEvent) => {
+      if (event.getType() === EventType.SpaceChild) bump()
+    }
+    openSpace.on(RoomStateEvent.Events, onState)
+    return () => {
+      openSpace.removeListener(RoomStateEvent.Events, onState)
+    }
+  }, [openSpace, roomFilter, refreshRooms])
 
   const showTabs = searchFocused || query.length > 0
   const canReorderPins =
@@ -543,7 +452,7 @@ export function ChatList() {
       }))
     }
     if (tab === 'messages') {
-      return messageHits.map((hit) => ({
+      return messageHits.slice(0, messageVisibleCount).map((hit) => ({
         kind: 'message' as const,
         key: `${hit.roomId}:${hit.eventId}`,
         hit,
@@ -570,6 +479,7 @@ export function ChatList() {
     pinnedMatched,
     unpinnedMatched,
     messageHits,
+    messageVisibleCount,
     people,
     publicRooms,
   ])
@@ -621,33 +531,115 @@ export function ChatList() {
     }
   }, [client, q, query, tab])
 
-  // Global message search
+  // Global message search — quick first page, deepen on demand
   useEffect(() => {
     if (!client || tab !== 'messages' || !q) {
+      messageSearchRef.current?.abort()
+      messageSearchRef.current = null
       if (tab !== 'messages') setMessageHits([])
       if (tab === 'messages' && !q) setMessageHits([])
+      setMessageVisibleCount(GLOBAL_SEARCH_PAGE_SIZE)
+      setMessageSearchBusy(false)
+      setMessageCanDeepen(false)
+      setMessageSearchStatus('')
       return
     }
 
-    let cancelled = false
+    messageSearchRef.current?.abort()
+    const session = new GlobalMessageSearchSession(client, query.trim())
+    messageSearchRef.current = session
     setRemoteLoading(true)
-    const t = window.setTimeout(async () => {
-      try {
-        const hits = await searchMessages(client, query.trim())
-        if (!cancelled) setMessageHits(hits)
-      } catch (err) {
-        console.error('Global message search failed', err)
-        if (!cancelled) setMessageHits([])
-      } finally {
-        if (!cancelled) setRemoteLoading(false)
-      }
-    }, 400)
+    setMessageSearchBusy(true)
+    setMessageVisibleCount(GLOBAL_SEARCH_PAGE_SIZE)
+    setMessageHits([])
+    setMessageCanDeepen(false)
+    setMessageSearchStatus('Ищем…')
+
+    const t = window.setTimeout(() => {
+      void session
+        .runQuick((snap) => {
+          if (messageSearchRef.current !== session) return
+          setMessageHits(snap.hits)
+          setMessageCanDeepen(snap.canDeepen)
+          setMessageSearchBusy(snap.busy)
+          setMessageSearchStatus(snap.status)
+          if (snap.hits.length > 0 || !snap.busy) setRemoteLoading(false)
+        })
+        .then((snap) => {
+          if (messageSearchRef.current !== session) return
+          setMessageHits(snap.hits)
+          setMessageCanDeepen(snap.canDeepen)
+          setMessageSearchBusy(false)
+          setMessageSearchStatus(snap.status)
+        })
+        .catch((err) => {
+          if (messageSearchRef.current !== session) return
+          console.error('Global message search failed', err)
+          setMessageHits([])
+          setMessageCanDeepen(false)
+          setMessageSearchBusy(false)
+          setMessageSearchStatus('')
+        })
+        .finally(() => {
+          if (messageSearchRef.current === session) setRemoteLoading(false)
+        })
+    }, 280)
 
     return () => {
-      cancelled = true
       window.clearTimeout(t)
+      session.abort()
+      if (messageSearchRef.current === session) {
+        messageSearchRef.current = null
+      }
     }
   }, [client, q, query, tab])
+
+  const visibleMessageHits = useMemo(
+    () => messageHits.slice(0, messageVisibleCount),
+    [messageHits, messageVisibleCount],
+  )
+
+  const messageHasMoreUi =
+    messageVisibleCount < messageHits.length || messageCanDeepen
+
+  const loadMoreMessages = useCallback(async () => {
+    // First reveal already-found hits without network work
+    if (messageVisibleCount < messageHits.length) {
+      setMessageVisibleCount((n) =>
+        Math.min(n + GLOBAL_SEARCH_PAGE_SIZE, messageHits.length),
+      )
+      return
+    }
+    const session = messageSearchRef.current
+    if (!session || messageSearchBusy || !messageCanDeepen) return
+
+    setMessageSearchBusy(true)
+    try {
+      const snap = await session.deepen((s) => {
+        if (messageSearchRef.current !== session) return
+        setMessageHits(s.hits)
+        setMessageCanDeepen(s.canDeepen)
+        setMessageSearchBusy(s.busy)
+        setMessageSearchStatus(s.status)
+      })
+      if (messageSearchRef.current !== session) return
+      setMessageHits(snap.hits)
+      setMessageCanDeepen(snap.canDeepen)
+      setMessageSearchBusy(false)
+      setMessageSearchStatus(snap.status)
+      setMessageVisibleCount((n) =>
+        Math.min(n + GLOBAL_SEARCH_PAGE_SIZE, Math.max(snap.hits.length, n)),
+      )
+    } catch (err) {
+      console.error('Deepen message search failed', err)
+      setMessageSearchBusy(false)
+    }
+  }, [
+    messageVisibleCount,
+    messageHits.length,
+    messageSearchBusy,
+    messageCanDeepen,
+  ])
 
   const parentRef = React.useRef<HTMLDivElement>(null)
 
@@ -675,21 +667,30 @@ export function ChatList() {
       try {
         const myId = client.getUserId()
         // Self-chat: DM lookup matches ANY direct room (you are always a member).
-        // Create / reopen a private notes room instead.
+        // Open / create a private Saved Messages room instead.
         if (myId && userId === myId) {
-          const notesName = 'scroll-test'
-          const existingNotes = client
-            .getRooms()
-            .find((room) => room.name === notesName)
+          const NOTES_NAME = 'Избранное'
+          const LEGACY_NOTES_NAME = 'scroll-test'
+          const existingNotes = client.getRooms().find((room) => {
+            const name = room.name
+            return name === NOTES_NAME || name === LEGACY_NOTES_NAME
+          })
           if (existingNotes) {
+            if (existingNotes.name === LEGACY_NOTES_NAME) {
+              try {
+                await client.setRoomName(existingNotes.roomId, NOTES_NAME)
+              } catch {
+                /* rename is best-effort */
+              }
+            }
             setActiveRoomId(existingNotes.roomId)
             setQuery('')
             return
           }
           const { room_id } = await client.createRoom({
-            name: notesName,
+            name: NOTES_NAME,
             preset: Preset.PrivateChat,
-            topic: 'Temporary scroll test — safe to leave/delete',
+            topic: 'Личные заметки',
           })
           setActiveRoomId(room_id)
           setQuery('')
@@ -747,20 +748,139 @@ export function ChatList() {
   const leaveRoom = useCallback(
     async (room: Room) => {
       if (!client) return
+      const isSpace = room.isSpaceRoom()
       const name = room.name || room.roomId
-      const ok = window.confirm(`Покинуть чат «${name}»?`)
+      const ok = window.confirm(
+        isSpace
+          ? `Покинуть пространство «${name}»?`
+          : `Покинуть чат «${name}»?`,
+      )
       if (!ok) return
       try {
         unpinRoom(room.roomId)
         pruneMutedIds([room.roomId])
         await client.leave(room.roomId)
         if (activeRoomId === room.roomId) setActiveRoomId(null)
+        setSpacePath((prev) => {
+          const idx = prev.indexOf(room.roomId)
+          if (idx < 0) return prev
+          return prev.slice(0, idx)
+        })
       } catch (err) {
         console.error('Failed to leave room', err)
-        alert('Не удалось покинуть чат')
+        alert(
+          isSpace
+            ? 'Не удалось покинуть пространство'
+            : 'Не удалось покинуть чат',
+        )
       }
     },
     [client, activeRoomId, setActiveRoomId, unpinRoom, pruneMutedIds],
+  )
+
+  const closeSpaceDialog = useCallback(() => {
+    if (spaceActionBusy) return
+    setSpaceDialog(null)
+    setSpaceActionError(null)
+  }, [spaceActionBusy])
+
+  const openSpaceDialog = useCallback(
+    (kind: 'create-space' | 'create-room' | 'add-room') => {
+      setSpaceActionError(null)
+      setSpaceDialog(kind)
+    },
+    [],
+  )
+
+  const runCreateSpace = useCallback(
+    async (data: { name: string; topic?: string }) => {
+      if (!client) return
+      setSpaceActionBusy(true)
+      setSpaceActionError(null)
+      try {
+        const roomId = await createSpace(client, data)
+        setSpaceDialog(null)
+        refreshRooms()
+        enterSpace(roomId)
+      } catch (err) {
+        console.error('Failed to create space', err)
+        setSpaceActionError(
+          err instanceof Error ? err.message : 'Не удалось создать пространство',
+        )
+      } finally {
+        setSpaceActionBusy(false)
+      }
+    },
+    [client, refreshRooms, enterSpace],
+  )
+
+  const runCreateRoomInSpace = useCallback(
+    async (data: { name: string; topic?: string }) => {
+      if (!client || !openSpace) return
+      setSpaceActionBusy(true)
+      setSpaceActionError(null)
+      try {
+        const roomId = await createRoomInSpace(client, openSpace, data)
+        setSpaceDialog(null)
+        setSpaceChildrenTick((n) => n + 1)
+        refreshRooms()
+        setActiveRoomId(roomId)
+      } catch (err) {
+        console.error('Failed to create room in space', err)
+        setSpaceActionError(
+          err instanceof Error ? err.message : 'Не удалось создать чат',
+        )
+      } finally {
+        setSpaceActionBusy(false)
+      }
+    },
+    [client, openSpace, refreshRooms, setActiveRoomId],
+  )
+
+  const runAddRoomToSpace = useCallback(
+    async (roomId: string) => {
+      if (!client || !openSpace) return
+      setSpaceActionBusy(true)
+      setSpaceActionError(null)
+      try {
+        await addRoomToSpace(client, openSpace, roomId)
+        setSpaceDialog(null)
+        setSpaceChildrenTick((n) => n + 1)
+        refreshRooms()
+      } catch (err) {
+        console.error('Failed to add room to space', err)
+        setSpaceActionError(
+          err instanceof Error ? err.message : 'Не удалось добавить чат',
+        )
+      } finally {
+        setSpaceActionBusy(false)
+      }
+    },
+    [client, openSpace, refreshRooms],
+  )
+
+  const runRemoveFromSpace = useCallback(
+    async (child: Room) => {
+      if (!client || !openSpace) return
+      const name = child.name || child.roomId
+      const ok = window.confirm(
+        `Убрать «${name}» из пространства «${openSpace.name || '…'}»?`,
+      )
+      if (!ok) return
+      try {
+        await removeRoomFromSpace(client, openSpace, child.roomId)
+        setSpaceChildrenTick((n) => n + 1)
+        refreshRooms()
+      } catch (err) {
+        console.error('Failed to remove room from space', err)
+        alert(
+          err instanceof Error
+            ? err.message
+            : 'Не удалось убрать чат из пространства',
+        )
+      }
+    },
+    [client, openSpace, refreshRooms],
   )
 
   const openMessageHit = useCallback(
@@ -770,12 +890,22 @@ export function ChatList() {
     [openRoomAtEvent],
   )
 
+  const openSpaceOrRoom = useCallback(
+    (room: Room) => {
+      if (room.isSpaceRoom()) {
+        enterSpace(room.roomId)
+        return
+      }
+      setActiveRoomId(room.roomId)
+    },
+    [enterSpace, setActiveRoomId],
+  )
+
   const activateSearchRow = useCallback(
     (row: SelectableRow) => {
       if (row.kind === 'room') {
-        if (roomFilter === 'spaces' && !openSpaceId) {
-          setOpenSpaceId(row.room.roomId)
-          setQuery('')
+        if (roomFilter === 'spaces') {
+          openSpaceOrRoom(row.room)
           return
         }
         setActiveRoomId(row.room.roomId)
@@ -791,7 +921,14 @@ export function ChatList() {
       }
       void joinPublic(row.room.alias || row.room.roomId)
     },
-    [setActiveRoomId, openMessageHit, startDm, joinPublic, roomFilter, openSpaceId],
+    [
+      setActiveRoomId,
+      openMessageHit,
+      startDm,
+      joinPublic,
+      roomFilter,
+      openSpaceOrRoom,
+    ],
   )
 
   const handleSearchKeyDown = useCallback(
@@ -853,11 +990,7 @@ export function ChatList() {
   }, [searchCursor, tab, selectableRows.length])
 
   if (status === 'loading' || status === 'initial') {
-    return (
-      <div className="w-[300px] shrink-0 flex flex-col items-center justify-center tg-chatlist border-r">
-        <p className="tg-muted">Loading chats...</p>
-      </div>
-    )
+    return <ChatListSkeleton />
   }
 
   const placeholder =
@@ -872,7 +1005,10 @@ export function ChatList() {
           : 'Поиск чатов…'
 
   return (
-    <div className="tg-chatlist w-[300px] shrink-0 flex flex-col border-r overflow-hidden">
+    <div
+      className="tg-chatlist relative shrink-0 flex flex-col border-r overflow-hidden"
+      style={{ width: chatListWidth }}
+    >
       <div className="px-3 pt-3 pb-2 shrink-0 space-y-3">
         <div className="relative">
           <span className="tg-field-icon-slot" aria-hidden>
@@ -931,19 +1067,80 @@ export function ChatList() {
       <div ref={parentRef} className="flex-1 overflow-y-auto">
         {tab === 'chats' && roomFilter === 'spaces' && (
           <>
-            {openSpaceId && openSpace && (
+            {spacePath.length > 0 && (
               <div className="px-2 pt-2 pb-1 sticky top-0 z-10 tg-chatlist">
                 <button
                   type="button"
-                  onClick={() => setOpenSpaceId(null)}
-                  className="flex items-center gap-1 px-1 py-1 rounded-lg text-[13px] text-white/65 hover:text-white hover:bg-white/5 transition-colors duration-ui"
+                  onClick={popSpace}
+                  className="flex items-center gap-1 px-1 py-1 rounded-lg text-[13px] text-ink-muted hover:text-ink hover:bg-surface-inset transition-colors duration-ui"
                 >
                   <ChevronLeft className="w-4 h-4 shrink-0" strokeWidth={2} />
-                  Пространства
+                  Назад
                 </button>
-                <div className="mt-1 px-1 text-[12px] text-white/40 truncate">
-                  {openSpace.name || 'Пространство'}
+                <div className="mt-1 px-1 text-[12px] text-ink-faint flex items-center gap-1 min-w-0 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setSpacePath([])}
+                    className="shrink-0 hover:text-ink-muted transition-colors"
+                  >
+                    Пространства
+                  </button>
+                  {spaceBreadcrumb.map((crumb, i) => (
+                    <React.Fragment key={crumb.id}>
+                      <span className="text-ink-faint shrink-0">/</span>
+                      <button
+                        type="button"
+                        onClick={() => jumpSpaceTo(i)}
+                        className={clsx(
+                          'truncate min-w-0 transition-colors',
+                          i === spaceBreadcrumb.length - 1
+                            ? 'text-ink-muted cursor-default'
+                            : 'hover:text-ink-muted',
+                        )}
+                        disabled={i === spaceBreadcrumb.length - 1}
+                        title={crumb.name}
+                      >
+                        {crumb.name}
+                      </button>
+                    </React.Fragment>
+                  ))}
                 </div>
+              </div>
+            )}
+
+            {!q && (
+              <div className="px-2 pt-1.5 pb-1 flex flex-wrap gap-1.5">
+                {!openSpaceId ? (
+                  <button
+                    type="button"
+                    onClick={() => openSpaceDialog('create-space')}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] text-ink-muted hover:text-ink hover:bg-surface-inset transition-colors"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" strokeWidth={2.1} />
+                    Создать пространство
+                  </button>
+                ) : (
+                  canEditOpenSpace && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openSpaceDialog('add-room')}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] text-ink-muted hover:text-ink hover:bg-surface-inset transition-colors"
+                      >
+                        <Link2 className="w-3.5 h-3.5" strokeWidth={2.1} />
+                        Добавить чат
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openSpaceDialog('create-room')}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] text-ink-muted hover:text-ink hover:bg-surface-inset transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" strokeWidth={2.1} />
+                        Новый чат
+                      </button>
+                    </>
+                  )
+                )}
               </div>
             )}
 
@@ -955,56 +1152,85 @@ export function ChatList() {
                     data-search-idx={idx}
                     className={clsx(
                       'rounded-lg',
-                      searchCursor === idx && 'bg-white/10',
+                      searchFocused && searchCursor === idx && 'bg-surface-inset',
                     )}
                     onClick={() => {
                       setSearchCursor(idx)
-                      if (openSpaceId) setActiveRoomId(room.roomId)
-                      else setOpenSpaceId(room.roomId)
+                      openSpaceOrRoom(room)
                     }}
                   >
                     <RoomItem
                       room={room}
-                      isActive={openSpaceId ? room.roomId === activeRoomId : false}
+                      isActive={
+                        !room.isSpaceRoom() && room.roomId === activeRoomId
+                      }
                       isMuted={mutedSet.has(room.roomId)}
                       draftPreview={
-                        openSpaceId && room.roomId === activeRoomId
+                        !room.isSpaceRoom() && room.roomId === activeRoomId
                           ? undefined
                           : draftPreviewText(draftsMap[room.roomId])
                       }
                       draftHasFiles={
-                        !!openSpaceId &&
+                        !room.isSpaceRoom() &&
                         room.roomId !== activeRoomId &&
                         !!draftsMap[room.roomId]?.files.length
                       }
                       onAvatarLongPress={
-                        openSpaceId ? openAvatarPeek : undefined
+                        room.isSpaceRoom() ? undefined : openAvatarPeek
                       }
-                      onContextMenu={
-                        openSpaceId
-                          ? (e, r) => {
-                              setRoomMenu({
-                                x: e.clientX,
-                                y: e.clientY,
-                                room: r,
-                              })
-                            }
-                          : undefined
-                      }
+                      onContextMenu={(e, r) => {
+                        setRoomMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          room: r,
+                        })
+                      }}
                     />
                   </div>
                 ),
               )
             ) : (
-              <p className="text-center text-white/35 text-[13px] py-8 px-3">
-                {q
-                  ? openSpaceId
-                    ? 'Чаты не найдены'
-                    : 'Пространства не найдены'
-                  : openSpaceId
-                    ? 'В этом пространстве нет чатов'
-                    : 'Нет пространств'}
-              </p>
+              <div className="text-center py-8 px-3 space-y-3">
+                <p className="text-ink-faint text-[13px]">
+                  {q
+                    ? openSpaceId
+                      ? 'Чаты не найдены'
+                      : 'Пространства не найдены'
+                    : openSpaceId
+                      ? 'В этом пространстве нет чатов'
+                      : 'Нет пространств'}
+                </p>
+                {!q && !openSpaceId && (
+                  <button
+                    type="button"
+                    onClick={() => openSpaceDialog('create-space')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] tg-btn-primary"
+                  >
+                    <FolderPlus className="w-4 h-4" strokeWidth={2.1} />
+                    Создать пространство
+                  </button>
+                )}
+                {!q && openSpaceId && canEditOpenSpace && (
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openSpaceDialog('add-room')}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] tg-btn-primary"
+                    >
+                      <Link2 className="w-4 h-4" strokeWidth={2.1} />
+                      Добавить существующий чат
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSpaceDialog('create-room')}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] text-ink-muted hover:text-ink hover:bg-surface-inset transition-colors"
+                    >
+                      <Plus className="w-4 h-4" strokeWidth={2.1} />
+                      Создать чат здесь
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
@@ -1035,11 +1261,13 @@ export function ChatList() {
                             key={roomId}
                             value={roomId}
                             as="div"
+                            layout="position"
                             data-search-idx={searchIdx}
                             className={clsx(
-                              'cursor-grab active:cursor-grabbing touch-none rounded-lg',
-                              searchCursor === searchIdx && 'bg-white/10',
+                              'tg-pin-reorder-item w-full cursor-grab active:cursor-grabbing touch-none rounded-lg',
+                              searchFocused && searchCursor === searchIdx && 'bg-surface-inset',
                             )}
+                            style={{ position: 'relative' }}
                             onPointerDown={() => {
                               pinDragMovedRef.current = false
                             }}
@@ -1088,7 +1316,7 @@ export function ChatList() {
                           data-search-idx={pinIdx}
                           className={clsx(
                             'rounded-lg',
-                            searchCursor === pinIdx && 'bg-white/10',
+                            searchFocused && searchCursor === pinIdx && 'bg-surface-inset',
                           )}
                           onClick={() => {
                             setSearchCursor(pinIdx)
@@ -1150,7 +1378,7 @@ export function ChatList() {
                           }}
                           className={clsx(
                             'rounded-lg',
-                            searchCursor === searchIdx && 'bg-white/10',
+                            searchFocused && searchCursor === searchIdx && 'bg-surface-inset',
                           )}
                           onClick={() => {
                             setSearchCursor(searchIdx)
@@ -1186,7 +1414,7 @@ export function ChatList() {
                 )}
               </>
             ) : (
-              <p className="text-center text-white/35 text-[13px] py-8 px-3">
+              <p className="text-center text-ink-faint text-[13px] py-8 px-3">
                 {q ? 'Чаты не найдены' : 'Нет чатов'}
               </p>
             )}
@@ -1196,24 +1424,61 @@ export function ChatList() {
         {tab === 'messages' && (
           <div className="px-2 pb-3">
             {!q && (
-              <p className="text-center text-white/35 text-[13px] py-8 px-3">
+              <p className="text-center text-ink-faint text-[13px] py-8 px-3">
                 Введите текст для поиска по всем чатам
               </p>
             )}
-            {q && remoteLoading && (
-              <div className="flex items-center justify-center gap-2 py-6 text-white/40 text-[13px]">
+            {q && remoteLoading && messageHits.length === 0 && (
+              <div className="flex items-center justify-center gap-2 py-6 text-ink-faint text-[13px]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Поиск сообщений…
               </div>
             )}
-            {q && !remoteLoading && messageHits.length === 0 && (
-              <p className="text-center text-white/35 text-[13px] py-8 px-3">
-                Сообщения не найдены
-              </p>
-            )}
-            {messageHits.length > 0 && (
+            {q &&
+              (messageSearchBusy || messageSearchStatus) &&
+              !(remoteLoading && messageHits.length === 0) && (
+                <div className="flex items-center gap-2 px-1 py-2 text-[11.5px] text-ink-faint">
+                  {messageSearchBusy && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {messageSearchStatus ||
+                      (messageSearchBusy ? 'Подгружаем…' : '')}
+                    {messageHits.length > 0 &&
+                      ` · ${Math.min(messageVisibleCount, messageHits.length)}/${messageHits.length}`}
+                  </span>
+                </div>
+              )}
+            {q &&
+              !remoteLoading &&
+              !messageSearchBusy &&
+              messageHits.length === 0 &&
+              !messageCanDeepen && (
+                <p className="text-center text-ink-faint text-[13px] py-8 px-3">
+                  Сообщения не найдены
+                </p>
+              )}
+            {q &&
+              !remoteLoading &&
+              messageHits.length === 0 &&
+              messageCanDeepen &&
+              !messageSearchBusy && (
+                <div className="flex flex-col items-center gap-3 py-8 px-3">
+                  <p className="text-center text-ink-faint text-[13px]">
+                    В открытой истории пока пусто
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreMessages()}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] tg-btn-primary"
+                  >
+                    Искать глубже
+                  </button>
+                </div>
+              )}
+            {visibleMessageHits.length > 0 && (
               <div className="space-y-0.5">
-                {messageHits.map((hit, idx) => (
+                {visibleMessageHits.map((hit, idx) => (
                   <button
                     key={`${hit.roomId}:${hit.eventId}`}
                     type="button"
@@ -1222,23 +1487,34 @@ export function ChatList() {
                       setSearchCursor(idx)
                       openMessageHit(hit)
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setSearchCursor(idx)
+                      setSearchMenu({
+                        kind: 'message',
+                        x: e.clientX,
+                        y: e.clientY,
+                        hit,
+                      })
+                    }}
                     className={clsx(
-                      'w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/5 transition-colors duration-ui',
-                      searchCursor === idx && 'bg-white/10',
+                      'w-full text-left px-2.5 py-2 rounded-xl hover:bg-surface-inset transition-colors duration-ui',
+                      searchFocused && searchCursor === idx && 'bg-surface-inset',
                     )}
                   >
                     <div className="flex items-baseline justify-between gap-2 mb-0.5">
                       <span className="text-[13px] font-semibold tg-title truncate">
                         {hit.roomName}
                       </span>
-                      <span className="text-[11px] text-white/35 shrink-0 tabular-nums">
+                      <span className="text-[11px] text-ink-faint shrink-0 tabular-nums">
                         {hit.ts ? format(hit.ts, 'dd.MM HH:mm') : ''}
                       </span>
                     </div>
                     <div className="text-[12px] tg-link truncate mb-0.5">
                       {hit.senderName}
                     </div>
-                    <div className="text-[12.5px] text-white/55 line-clamp-2 leading-snug">
+                    <div className="text-[12.5px] text-ink-muted line-clamp-2 leading-snug">
                       <HighlightedSnippet
                         text={hit.body}
                         highlights={hit.highlights}
@@ -1246,6 +1522,33 @@ export function ChatList() {
                     </div>
                   </button>
                 ))}
+                {messageHasMoreUi && (
+                  <button
+                    type="button"
+                    disabled={messageSearchBusy}
+                    onClick={() => void loadMoreMessages()}
+                    className={clsx(
+                      'w-full mt-1.5 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-[13px] transition-colors',
+                      messageSearchBusy
+                        ? 'text-ink-faint cursor-wait'
+                        : 'text-ink-muted hover:text-ink hover:bg-surface-inset',
+                    )}
+                  >
+                    {messageSearchBusy ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Подгружаем…
+                      </>
+                    ) : messageVisibleCount < messageHits.length ? (
+                      `Ещё ${Math.min(
+                        GLOBAL_SEARCH_PAGE_SIZE,
+                        messageHits.length - messageVisibleCount,
+                      )}`
+                    ) : (
+                      'Искать глубже в истории'
+                    )}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1254,12 +1557,12 @@ export function ChatList() {
         {tab === 'people' && (
           <div className="px-2 pb-3 space-y-3">
             {!q && (
-              <p className="text-center text-white/35 text-[13px] py-8 px-3">
+              <p className="text-center text-ink-faint text-[13px] py-8 px-3">
                 Ищите @user:server или публичные комнаты
               </p>
             )}
             {q && remoteLoading && (
-              <div className="flex items-center justify-center gap-2 py-6 text-white/40 text-[13px]">
+              <div className="flex items-center justify-center gap-2 py-6 text-ink-faint text-[13px]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Поиск…
               </div>
@@ -1268,14 +1571,14 @@ export function ChatList() {
               !remoteLoading &&
               people.length === 0 &&
               publicRooms.length === 0 && (
-                <p className="text-center text-white/35 text-[13px] py-6 px-3">
+                <p className="text-center text-ink-faint text-[13px] py-6 px-3">
                   Ничего не найдено
                 </p>
               )}
 
             {people.length > 0 && (
               <section>
-                <h3 className="px-2 mb-1.5 text-[11px] uppercase tracking-wide text-white/35 font-semibold">
+                <h3 className="px-2 mb-1.5 text-[11px] uppercase tracking-wide text-ink-faint font-semibold">
                   Люди
                 </h3>
                 <div className="space-y-0.5">
@@ -1289,9 +1592,20 @@ export function ChatList() {
                         setSearchCursor(idx)
                         void startDm(u.userId)
                       }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setSearchCursor(idx)
+                        setSearchMenu({
+                          kind: 'person',
+                          x: e.clientX,
+                          y: e.clientY,
+                          user: u,
+                        })
+                      }}
                       className={clsx(
-                        'w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-white/5 text-left disabled:opacity-50 transition-colors duration-ui',
-                        searchCursor === idx && 'bg-white/10',
+                        'w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-surface-inset text-left disabled:opacity-50 transition-colors duration-ui',
+                        searchFocused && searchCursor === idx && 'bg-surface-inset',
                       )}
                     >
                       <div
@@ -1304,11 +1618,11 @@ export function ChatList() {
                         <div className="text-[14px] tg-title truncate">
                           {u.displayName || u.userId.split(':')[0].slice(1)}
                         </div>
-                        <div className="text-[12px] text-white/40 truncate">
+                        <div className="text-[12px] text-ink-faint truncate">
                           {u.userId}
                         </div>
                       </div>
-                      <UserPlus className="w-4 h-4 text-white/40 shrink-0" />
+                      <UserPlus className="w-4 h-4 text-ink-faint shrink-0" />
                     </button>
                   ))}
                 </div>
@@ -1317,7 +1631,7 @@ export function ChatList() {
 
             {publicRooms.length > 0 && (
               <section>
-                <h3 className="px-2 mb-1.5 text-[11px] uppercase tracking-wide text-white/35 font-semibold">
+                <h3 className="px-2 mb-1.5 text-[11px] uppercase tracking-wide text-ink-faint font-semibold">
                   Публичные комнаты
                 </h3>
                 <div className="space-y-0.5">
@@ -1334,18 +1648,18 @@ export function ChatList() {
                         void joinPublic(r.alias || r.roomId)
                       }}
                       className={clsx(
-                        'w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-white/5 text-left disabled:opacity-50 transition-colors duration-ui',
-                        searchCursor === searchIdx && 'bg-white/10',
+                        'w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-surface-inset text-left disabled:opacity-50 transition-colors duration-ui',
+                        searchFocused && searchCursor === searchIdx && 'bg-surface-inset',
                       )}
                     >
-                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-                        <Hash className="w-4 h-4 text-white/50" />
+                      <div className="w-10 h-10 rounded-full bg-surface-inset flex items-center justify-center shrink-0">
+                        <Hash className="w-4 h-4 text-ink-muted" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-[14px] tg-title truncate">
                           {r.name}
                         </div>
-                        <div className="text-[12px] text-white/40 truncate">
+                        <div className="text-[12px] text-ink-faint truncate">
                           {r.numJoinedMembers != null
                             ? `${r.numJoinedMembers} участников`
                             : r.alias || r.roomId}
@@ -1373,6 +1687,18 @@ export function ChatList() {
               icon: <Info className="w-4 h-4" />,
               onSelect: () => openRoomProfile(roomMenu.room.roomId),
             },
+            ...(openSpaceId &&
+            canEditOpenSpace &&
+            !roomMenu.room.isSpaceRoom()
+              ? [
+                  {
+                    id: 'remove-from-space',
+                    label: 'Убрать из пространства',
+                    icon: <FolderMinus className="w-4 h-4" />,
+                    onSelect: () => void runRemoveFromSpace(roomMenu.room),
+                  },
+                ]
+              : []),
             pinnedSet.has(roomMenu.room.roomId)
               ? {
                   id: 'unpin',
@@ -1397,13 +1723,13 @@ export function ChatList() {
                   id: 'unmute',
                   label: 'Включить уведомления',
                   icon: <Bell className="w-4 h-4" />,
-                  onSelect: () => unmuteRoom(roomMenu.room.roomId),
+                  onSelect: () => void unmuteRoom(roomMenu.room.roomId, client),
                 }
               : {
                   id: 'mute',
                   label: 'Без звука',
                   icon: <BellOff className="w-4 h-4" />,
-                  onSelect: () => muteRoom(roomMenu.room.roomId),
+                  onSelect: () => void muteRoom(roomMenu.room.roomId, client),
                 },
             {
               id: 'read',
@@ -1413,10 +1739,63 @@ export function ChatList() {
             },
             {
               id: 'leave',
-              label: 'Покинуть чат',
+              label: roomMenu.room.isSpaceRoom()
+                ? 'Покинуть пространство'
+                : 'Покинуть чат',
               icon: <LogOut className="w-4 h-4" />,
               danger: true,
               onSelect: () => void leaveRoom(roomMenu.room),
+            },
+          ]}
+        />
+      )}
+
+      {searchMenu?.kind === 'message' && (
+        <AppContextMenu
+          x={searchMenu.x}
+          y={searchMenu.y}
+          onClose={() => setSearchMenu(null)}
+          items={[
+            {
+              id: 'open',
+              label: 'Перейти к сообщению',
+              icon: <Search className="w-4 h-4" />,
+              onSelect: () => openMessageHit(searchMenu.hit),
+            },
+            {
+              id: 'copy-text',
+              label: 'Копировать текст',
+              icon: <Copy className="w-4 h-4" />,
+              disabled: !searchMenu.hit.body.trim(),
+              onSelect: () => void copyToClipboard(searchMenu.hit.body),
+            },
+            {
+              id: 'copy-event',
+              label: 'Копировать ID события',
+              icon: <Copy className="w-4 h-4" />,
+              onSelect: () => void copyToClipboard(searchMenu.hit.eventId),
+            },
+          ]}
+        />
+      )}
+
+      {searchMenu?.kind === 'person' && (
+        <AppContextMenu
+          x={searchMenu.x}
+          y={searchMenu.y}
+          onClose={() => setSearchMenu(null)}
+          items={[
+            {
+              id: 'dm',
+              label: 'Написать',
+              icon: <UserPlus className="w-4 h-4" />,
+              onSelect: () => void startDm(searchMenu.user.userId),
+            },
+            {
+              id: 'copy-mxid',
+              label: 'Копировать MXID',
+              icon: <Copy className="w-4 h-4" />,
+              onSelect: () => void copyToClipboard(searchMenu.user.userId),
             },
           ]}
         />
@@ -1429,6 +1808,33 @@ export function ChatList() {
           onClose={() => setPeek(null)}
         />
       )}
+
+      <SpaceNameDialog
+        open={spaceDialog === 'create-space'}
+        mode="space"
+        busy={spaceActionBusy}
+        error={spaceActionError}
+        onClose={closeSpaceDialog}
+        onSubmit={(data) => void runCreateSpace(data)}
+      />
+      <SpaceNameDialog
+        open={spaceDialog === 'create-room'}
+        mode="room"
+        busy={spaceActionBusy}
+        error={spaceActionError}
+        onClose={closeSpaceDialog}
+        onSubmit={(data) => void runCreateRoomInSpace(data)}
+      />
+      <AddRoomToSpaceDialog
+        open={spaceDialog === 'add-room'}
+        space={openSpace}
+        client={client}
+        busy={spaceActionBusy}
+        error={spaceActionError}
+        onClose={closeSpaceDialog}
+        onSelect={(roomId) => void runAddRoomToSpace(roomId)}
+      />
+      <ChatListResizeHandle />
     </div>
   )
 }

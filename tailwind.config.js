@@ -47,7 +47,7 @@ export default {
         ui: '150ms',
       },
       boxShadow: {
-        panel: '0 24px 48px rgba(0, 0, 0, 0.6)',
+        panel: 'var(--panel-shadow)',
       },
     },
   },

@@ -7,6 +7,13 @@ import {
 } from '@/shared/lib/matrixMedia'
 import { MessageMarkdown, type MentionMember } from '@/shared/ui/MessageMarkdown'
 import { userIdFromMatrixTo } from '@/shared/lib/openDm'
+import {
+  mentionClickAnchorFromEl,
+  buildMentionLabelMap,
+  splitTextMentions,
+  mxidLocalpart,
+  type MentionUserClickHandler,
+} from '@/shared/lib/mentions'
 import { getUserColor, getUserColorAlpha } from '@/shared/lib/color'
 import { useSessionStore } from '@/entities/session/model/session'
 import { renderTwemojiString } from '@/shared/ui/twemoji'
@@ -198,10 +205,49 @@ function MxEmoticonImg({
   )
 }
 
+function renderMentionText(
+  text: string,
+  keyPrefix: string,
+  labelMap: Map<string, string>,
+  onUserClick?: MentionUserClickHandler,
+): ReactNode[] {
+  const parts = splitTextMentions(text, labelMap)
+  return parts.map((part, i) => {
+    const key = `${keyPrefix}.t${i}`
+    if (part.kind === 'text') {
+      return <span key={key}>{renderTwemojiString(part.text)}</span>
+    }
+    return (
+      <button
+        key={key}
+        type="button"
+        className="tg-mention inline align-baseline font-medium hover:underline cursor-pointer px-1 py-0.5 rounded-sm transition-colors"
+        style={{
+          color: getUserColor(part.userId),
+          backgroundColor: getUserColorAlpha(part.userId, 0.2),
+        }}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onUserClick?.(
+            part.userId,
+            part.label,
+            mentionClickAnchorFromEl(e.currentTarget),
+          )
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {part.label}
+      </button>
+    )
+  })
+}
+
 function renderNodes(
   nodes: NodeListOf<ChildNode> | ChildNode[],
   keyPrefix: string,
-  onUserClick?: (userId: string) => void,
+  onUserClick?: MentionUserClickHandler,
+  labelMap: Map<string, string> = new Map(),
 ): ReactNode[] {
   const out: ReactNode[] = []
   Array.from(nodes).forEach((node, i) => {
@@ -210,7 +256,13 @@ function renderNodes(
       const text = node.textContent ?? ''
       // Skip object-replacement placeholders — the <img> carries the real content
       if (isPlaceholderBody(text)) return
-      if (text) out.push(<span key={key}>{renderTwemojiString(text)}</span>)
+      if (text) {
+        if (labelMap.size > 0 || /@[A-Za-z0-9._=\-/]+/.test(text)) {
+          out.push(...renderMentionText(text, key, labelMap, onUserClick))
+        } else {
+          out.push(<span key={key}>{renderTwemojiString(text)}</span>)
+        }
+      }
       return
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return
@@ -220,7 +272,7 @@ function renderNodes(
     if (tag === 'MX-REPLY') return
 
     if (!ALLOWED_TAGS.has(tag)) {
-      out.push(...renderNodes(el.childNodes, key, onUserClick))
+      out.push(...renderNodes(el.childNodes, key, onUserClick, labelMap))
       return
     }
 
@@ -251,12 +303,17 @@ function renderNodes(
       return
     }
 
-    const children = renderNodes(el.childNodes, key, onUserClick)
+    const children = renderNodes(el.childNodes, key, onUserClick, labelMap)
 
     if (tag === 'A') {
       const href = el.getAttribute('href') || ''
       const userId = userIdFromMatrixTo(href)
       if (userId) {
+        const rawLabel = (el.textContent || '').trim()
+        const showLabel =
+          !rawLabel || /^https?:\/\//i.test(rawLabel)
+            ? `@${mxidLocalpart(userId) || userId}`
+            : null
         out.push(
           <button
             key={key}
@@ -269,10 +326,16 @@ function renderNodes(
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              onUserClick?.(userId)
+              const label = (e.currentTarget.textContent || '').trim()
+              onUserClick?.(
+                userId,
+                label || undefined,
+                mentionClickAnchorFromEl(e.currentTarget),
+              )
             }}
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            {children}
+            {showLabel ?? children}
           </button>,
         )
         return
@@ -402,7 +465,7 @@ type MessageBodyProps = {
   content: Record<string, unknown>
   className?: string
   members?: MentionMember[]
-  onUserClick?: (userId: string) => void
+  onUserClick?: MentionUserClickHandler
   plainText?: string
 }
 
@@ -457,11 +520,12 @@ export function MessageBody({
       )
       const root = doc.getElementById('mx-root')
       if (!root) return null
-      return renderNodes(root.childNodes, 'r', onUserClick)
+      const labelMap = buildMentionLabelMap(members)
+      return renderNodes(root.childNodes, 'r', onUserClick, labelMap)
     } catch {
       return null
     }
-  }, [format, formatted, body, onUserClick])
+  }, [format, formatted, body, onUserClick, members])
 
   const bodyHex = useMemo(() => {
     if (!body || body.length > 16) return undefined
@@ -514,7 +578,7 @@ export function MessageBody({
   if (isBridgeEmojiPlaceholder(body)) {
     return (
       <div
-        className={clsx('tg-md tg-msg-body text-white/35 italic', className)}
+        className={clsx('tg-md tg-msg-body text-ink-faint italic', className)}
         data-mx-body-hex={bodyHex}
         title={bodyHex ? `placeholder ${bodyHex}` : undefined}
       >

@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-/** public/twemoji — relative to Vite `base` (./) so Electron resolves it. */
+/**
+ * Local Twemoji PNGs from `public/twemoji/72x72` (copied into dist / asar).
+ * Not a font and not a CDN — offline assets. Run `bash scripts/fetch-twemoji.sh` if missing.
+ */
 function twemojiPublicUrl(code: string): string {
   const base = import.meta.env.BASE_URL || './'
   const prefix = base.endsWith('/') ? base : `${base}/`
@@ -10,6 +13,11 @@ function twemojiPublicUrl(code: string): string {
 const EMOJI_RE =
   /(?:\p{Extended_Pictographic}(?:\uFE0F)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F)?)*)|(?:\d\uFE0F\u20E3)|(?:[#*]\uFE0F\u20E3)/gu
 
+/**
+ * Twemoji filename rule (same as jdecked/twemoji):
+ * - no ZWJ → strip U+FE0F / U+FE0E (❤ → `2764.png`, not `2764-fe0f.png`)
+ * - with ZWJ → keep FE0F in the sequence (`2764-fe0f-200d-1f525.png`)
+ */
 function toTwemojiCodes(emoji: string): string[] {
   const raw: number[] = []
   for (const ch of emoji) {
@@ -20,7 +28,10 @@ function toTwemojiCodes(emoji: string): string[] {
   }
   if (!raw.length) return []
 
+  const hasZwj = raw.includes(0x200d)
+  const noTextVs = raw.filter((cp) => cp !== 0xfe0e)
   const stripped = raw.filter((cp) => cp !== 0xfe0f && cp !== 0xfe0e)
+
   const codes: string[] = []
   const add = (parts: number[]) => {
     if (!parts.length) return
@@ -28,9 +39,16 @@ function toTwemojiCodes(emoji: string): string[] {
     if (!codes.includes(key)) codes.push(key)
   }
 
-  add(stripped)
-  add(raw)
-  if (stripped.length === 1) add([stripped[0], 0xfe0f])
+  if (hasZwj) {
+    // Prefer official ZWJ name with FE0F kept
+    add(noTextVs)
+    add(stripped)
+  } else {
+    // Simple emoji: FE0F is never in the asset filename
+    add(stripped)
+  }
+
+  // Last-resort fallbacks (rare / incomplete packs)
   if (stripped.length > 1) {
     add([stripped[0]])
     const noZwj = stripped.filter((cp) => cp !== 0x200d)
@@ -101,6 +119,8 @@ export function TwemojiImg({
       alt={emoji}
       title={emoji}
       draggable={false}
+      loading="lazy"
+      decoding="async"
       onError={() => {
         if (idx + 1 < codes.length) setIdx(idx + 1)
         else setFailed(true)
@@ -118,14 +138,18 @@ export function renderTwemojiString(text: string): ReactNode {
   if (!hits.length) return text
 
   const nodes: ReactNode[] = []
-  let last = 0
-  hits.forEach((h, i) => {
-    if (h.index > last) nodes.push(text.slice(last, h.index))
-    nodes.push(<TwemojiImg key={`e${i}-${h.index}`} emoji={h.emoji} />)
-    last = h.index + h.length
+  let cursor = 0
+  hits.forEach((hit, i) => {
+    if (hit.index > cursor) {
+      nodes.push(text.slice(cursor, hit.index))
+    }
+    nodes.push(
+      <TwemojiImg key={`e-${hit.index}-${i}`} emoji={hit.emoji} />,
+    )
+    cursor = hit.index + hit.length
   })
-  if (last < text.length) nodes.push(text.slice(last))
-  return nodes.length === 1 ? nodes[0] : <>{nodes}</>
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return nodes
 }
 
 export function withTwemoji(children: ReactNode): ReactNode {

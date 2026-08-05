@@ -3,11 +3,18 @@ import { matrixService, SSO_REDIRECT_URL, normalizeHomeserverUrl } from "@/share
 import { MatrixClient, SyncState } from 'matrix-js-sdk'
 import { useRoomStore } from './room.store'
 import { useInvitesStore } from './invites.store'
+import { useCallStore } from '@/shared/lib/calls'
 
 function bindClientSession(client: MatrixClient, set: (partial: Partial<SessionState>) => void) {
-  set({ client, isAuthenticated: true, authStatus: 'authenticated' })
+  set({
+    client,
+    isAuthenticated: true,
+    authStatus: 'authenticated',
+    syncState: client.getSyncState(),
+  })
   useRoomStore.getState().actions.init(client)
   useInvitesStore.getState().actions.init(client)
+  useCallStore.getState().actions.init(client)
   matrixService.listenToSync((state) => {
     set({ syncState: state })
   })
@@ -71,6 +78,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   logout: async () => {
     useInvitesStore.getState().actions.cleanup()
     useRoomStore.getState().actions.cleanup()
+    useCallStore.getState().actions.cleanup()
+    try {
+      await window.electronAPI?.clearElementCallSession?.()
+    } catch (err) {
+      console.warn('[logout] clear Element Call session failed', err)
+    }
     set({
       client: null,
       isAuthenticated: false,

@@ -14,6 +14,8 @@
   --color-text-muted: #a1a1aa;
   --color-accent: #3b82f6;
   --color-on-accent: #ffffff;
+  --call-hangup: #ef4444;
+  --call-hangup-hover: #dc2626;
 
   --app-bg: var(--color-bg);
   --app-bg-elevated: var(--color-sidebar);
@@ -37,6 +39,41 @@
   --bubble-in: var(--color-surface-in);
   --bubble-out-start: var(--color-surface);
   --bubble-out-end: color-mix(in srgb, var(--color-surface) 78%, black);
+  --bubble-meta: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --bubble-meta-out: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --bubble-edited: color-mix(in srgb, var(--color-text) 38%, transparent);
+  --bubble-tick-sent: color-mix(in srgb, #e0e7ff 55%, transparent);
+  --bubble-tick-read: #7ec8ff;
+  --bubble-tick-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --on-bubble-fill: color-mix(in srgb, #ffffff 15%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, #ffffff 25%, transparent);
+  --on-bubble-track: color-mix(in srgb, #ffffff 15%, transparent);
+  --on-bubble-progress: color-mix(in srgb, #ffffff 70%, transparent);
+
+  --date-chip-bg: color-mix(in srgb, #000000 28%, transparent);
+  --date-chip-fg: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --date-chip-border: color-mix(in srgb, #ffffff 6%, transparent);
+  --date-chip-fg-hover: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --sticky-date-bg: rgba(23, 33, 43, 0.88);
+  --sticky-date-fg: color-mix(in srgb, var(--color-text) 72%, transparent);
+  --sticky-date-border: color-mix(in srgb, #ffffff 8%, transparent);
+  --sticky-date-bg-hover: rgba(32, 46, 60, 0.95);
+
+  --menu-surface: rgba(28, 39, 51, 0.94);
+  --menu-surface-solid: #1c2733;
+  --menu-border: color-mix(in srgb, #ffffff 12%, transparent);
+  --menu-fg: color-mix(in srgb, var(--color-text) 92%, transparent);
+  --menu-fg-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --menu-fg-faint: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --menu-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --menu-divider: color-mix(in srgb, #ffffff 10%, transparent);
+  --segment-track: color-mix(in srgb, #000000 35%, transparent);
+  --hover-surface: color-mix(in srgb, #ffffff 6%, transparent);
+  --control-fill: color-mix(in srgb, #ffffff 5%, transparent);
+  --control-fill-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --panel-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --float-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 
   --radius-bubble: 16px;
   --radius-bubble-tail: 8px;
@@ -53,11 +90,12 @@
 .theme-light {
   color-scheme: light;
 
-  --color-bg: #ffffff;
-  --color-sidebar: #f8f8fa;
-  --color-surface: #e6f0ff;
-  --color-surface-in: #f1f1f4;
-  --color-text: #111111;
+  /* Solid messenger light — no glass / vibrancy bleed */
+  --color-bg: #eef1f5;
+  --color-sidebar: #f7f8fa;
+  --color-surface: #dcebff;
+  --color-surface-in: #ffffff;
+  --color-text: #111827;
   --color-text-muted: #6b7280;
   --color-accent: #2563eb;
   --color-on-accent: #ffffff;
@@ -66,24 +104,59 @@
   --app-bg-elevated: var(--color-sidebar);
   --surface: var(--color-sidebar);
   --surface-elevated: #ffffff;
-  --surface-glass: color-mix(in srgb, var(--color-sidebar) 90%, transparent);
-  --surface-glass-strong: color-mix(in srgb, #ffffff 94%, transparent);
-  --surface-inset: color-mix(in srgb, var(--color-text) 5%, transparent);
-  --hairline: color-mix(in srgb, var(--color-text) 10%, transparent);
-  --hairline-strong: color-mix(in srgb, var(--color-text) 16%, transparent);
+  --surface-glass: #f7f8fa;
+  --surface-glass-strong: #ffffff;
+  --surface-inset: #eef1f5;
+  --hairline: rgba(15, 23, 42, 0.08);
+  --hairline-strong: rgba(15, 23, 42, 0.14);
   --text: var(--color-text);
   --text-muted: var(--color-text-muted);
-  --text-faint: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+  --text-faint: #9ca3af;
   --accent: var(--color-accent);
-  --accent-hover: color-mix(in srgb, var(--color-accent) 82%, white);
-  --accent-pressed: color-mix(in srgb, var(--color-accent) 82%, black);
-  --accent-soft: color-mix(in srgb, var(--color-accent) 16%, transparent);
-  --accent-softer: color-mix(in srgb, var(--color-accent) 9%, transparent);
-  --accent-fg: color-mix(in srgb, var(--color-accent) 25%, black);
-  --accent-border: color-mix(in srgb, var(--color-accent) 32%, transparent);
-  --bubble-in: var(--color-surface-in);
-  --bubble-out-start: var(--color-surface);
-  --bubble-out-end: color-mix(in srgb, var(--color-accent) 55%, var(--color-surface));
+  --accent-hover: #3b82f6;
+  --accent-pressed: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-softer: rgba(37, 99, 235, 0.07);
+  --accent-fg: #1e40af;
+  --accent-border: rgba(37, 99, 235, 0.28);
+  --bubble-in: #ffffff;
+  --bubble-out-start: #dcebff;
+  --bubble-out-end: #dcebff;
+  --bubble-meta: #8b95a5;
+  --bubble-meta-out: #6b7c93;
+  --bubble-edited: #8b95a5;
+  --bubble-tick-sent: #94a3b8;
+  --bubble-tick-read: #2563eb;
+  --bubble-tick-hover: rgba(15, 23, 42, 0.06);
+  --on-bubble-fill: rgba(15, 23, 42, 0.06);
+  --on-bubble-fill-strong: rgba(15, 23, 42, 0.1);
+  --on-bubble-track: rgba(15, 23, 42, 0.1);
+  --on-bubble-progress: #2563eb;
+
+  --date-chip-bg: rgba(15, 23, 42, 0.06);
+  --date-chip-fg: #5b6573;
+  --date-chip-border: transparent;
+  --date-chip-fg-hover: #111827;
+  --sticky-date-bg: #ffffff;
+  --sticky-date-fg: #5b6573;
+  --sticky-date-border: rgba(15, 23, 42, 0.08);
+  --sticky-date-bg-hover: #ffffff;
+
+  --menu-surface: #ffffff;
+  --menu-surface-solid: #ffffff;
+  --menu-border: rgba(15, 23, 42, 0.1);
+  --menu-fg: #111827;
+  --menu-fg-muted: #6b7280;
+  --menu-fg-faint: #9ca3af;
+  --menu-hover: rgba(15, 23, 42, 0.05);
+  --menu-divider: rgba(15, 23, 42, 0.08);
+  --segment-track: #e8ebf0;
+  --hover-surface: rgba(15, 23, 42, 0.04);
+  --control-fill: #eef1f5;
+  --control-fill-hover: #e4e8ee;
+  --panel-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+  --bubble-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --float-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
 
   --tg-scrollbar-thumb: color-mix(in srgb, var(--color-text) 16%, transparent);
   --tg-scrollbar-thumb-hover: color-mix(in srgb, var(--color-text) 28%, transparent);
@@ -211,10 +284,375 @@
   --tg-scrollbar-thumb-active: color-mix(in srgb, var(--color-text) 48%, transparent);
 }
 
+/* ——— Planetar Orbit: deep space + teal brand ——— */
+.theme-orbit {
+  color-scheme: dark;
+
+  --color-bg: #070b14;
+  --color-sidebar: #0c1220;
+  --color-surface: #1a3a3a;
+  --color-surface-in: #141c2e;
+  --color-text: #e8eef8;
+  --color-text-muted: #8b9bb4;
+  --color-accent: #5eead4;
+  --color-on-accent: #042f2e;
+
+  --app-bg: var(--color-bg);
+  --app-bg-elevated: var(--color-sidebar);
+  --surface: var(--color-sidebar);
+  --surface-elevated: var(--color-surface-in);
+  --surface-glass: color-mix(in srgb, var(--color-sidebar) 88%, transparent);
+  --surface-glass-strong: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
+  --surface-inset: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --hairline: color-mix(in srgb, #7c6cf0 10%, color-mix(in srgb, var(--color-text) 7%, transparent));
+  --hairline-strong: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --text-faint: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+  --accent: var(--color-accent);
+  --accent-hover: color-mix(in srgb, var(--color-accent) 78%, white);
+  --accent-pressed: color-mix(in srgb, var(--color-accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  --accent-softer: color-mix(in srgb, var(--color-accent) 11%, transparent);
+  --accent-fg: #b8fff4;
+  --accent-border: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  --bubble-in: var(--color-surface-in);
+  --bubble-out-start: #163636;
+  --bubble-out-end: #0f2a2a;
+  --bubble-meta: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --bubble-meta-out: color-mix(in srgb, var(--color-accent) 55%, var(--color-text-muted));
+  --bubble-edited: color-mix(in srgb, var(--color-text) 38%, transparent);
+  --bubble-tick-sent: color-mix(in srgb, #a5f3fc 50%, transparent);
+  --bubble-tick-read: #5eead4;
+  --bubble-tick-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --on-bubble-fill: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, #ffffff 24%, transparent);
+  --on-bubble-track: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-progress: color-mix(in srgb, var(--color-accent) 70%, white);
+
+  --date-chip-bg: color-mix(in srgb, #000000 34%, transparent);
+  --date-chip-fg: color-mix(in srgb, var(--color-text) 48%, transparent);
+  --date-chip-border: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --date-chip-fg-hover: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --sticky-date-bg: color-mix(in srgb, #0c1220 90%, transparent);
+  --sticky-date-fg: color-mix(in srgb, var(--color-text) 72%, transparent);
+  --sticky-date-border: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --sticky-date-bg-hover: color-mix(in srgb, #141c2e 94%, transparent);
+
+  --menu-surface: color-mix(in srgb, #0c1220 94%, transparent);
+  --menu-surface-solid: #121a2c;
+  --menu-border: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --menu-fg: color-mix(in srgb, var(--color-text) 92%, transparent);
+  --menu-fg-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --menu-fg-faint: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --menu-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --menu-divider: color-mix(in srgb, #ffffff 10%, transparent);
+  --segment-track: color-mix(in srgb, #000000 40%, transparent);
+  --hover-surface: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --control-fill: color-mix(in srgb, #ffffff 5%, transparent);
+  --control-fill-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --panel-shadow: 0 24px 48px rgba(0, 0, 0, 0.58);
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --float-shadow: 0 4px 14px rgba(0, 8, 24, 0.4);
+
+  --tg-scrollbar-thumb: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --tg-scrollbar-thumb-hover: color-mix(in srgb, var(--color-accent) 36%, transparent);
+  --tg-scrollbar-thumb-active: color-mix(in srgb, var(--color-accent) 48%, transparent);
+}
+
+/* ——— Obsidian Gold: luxury black + champagne ——— */
+.theme-obsidian {
+  color-scheme: dark;
+
+  --color-bg: #0a0a0b;
+  --color-sidebar: #141416;
+  --color-surface: #2a2418;
+  --color-surface-in: #1a1a1c;
+  --color-text: #f3f0e8;
+  --color-text-muted: #a39e90;
+  --color-accent: #c6a75e;
+  --color-on-accent: #1a1408;
+
+  --app-bg: var(--color-bg);
+  --app-bg-elevated: var(--color-sidebar);
+  --surface: var(--color-sidebar);
+  --surface-elevated: var(--color-surface-in);
+  --surface-glass: color-mix(in srgb, var(--color-sidebar) 90%, transparent);
+  --surface-glass-strong: color-mix(in srgb, var(--color-sidebar) 96%, transparent);
+  --surface-inset: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --hairline: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --text-faint: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+  --accent: var(--color-accent);
+  --accent-hover: color-mix(in srgb, var(--color-accent) 82%, white);
+  --accent-pressed: color-mix(in srgb, var(--color-accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --accent-softer: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  --accent-fg: #f0e2b8;
+  --accent-border: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  --bubble-in: var(--color-surface-in);
+  --bubble-out-start: #2c261c;
+  --bubble-out-end: #1f1a12;
+  --bubble-meta: color-mix(in srgb, var(--color-text) 42%, transparent);
+  --bubble-meta-out: color-mix(in srgb, var(--color-accent) 50%, var(--color-text-muted));
+  --bubble-edited: color-mix(in srgb, var(--color-text) 36%, transparent);
+  --bubble-tick-sent: color-mix(in srgb, #e8d5a3 45%, transparent);
+  --bubble-tick-read: #c6a75e;
+  --bubble-tick-hover: color-mix(in srgb, #ffffff 8%, transparent);
+  --on-bubble-fill: color-mix(in srgb, #ffffff 12%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, #ffffff 20%, transparent);
+  --on-bubble-track: color-mix(in srgb, #ffffff 12%, transparent);
+  --on-bubble-progress: color-mix(in srgb, var(--color-accent) 75%, white);
+
+  --date-chip-bg: color-mix(in srgb, #000000 36%, transparent);
+  --date-chip-fg: color-mix(in srgb, var(--color-text) 46%, transparent);
+  --date-chip-border: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --date-chip-fg-hover: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --sticky-date-bg: color-mix(in srgb, #141416 92%, transparent);
+  --sticky-date-fg: color-mix(in srgb, var(--color-text) 70%, transparent);
+  --sticky-date-border: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --sticky-date-bg-hover: color-mix(in srgb, #1a1a1c 95%, transparent);
+
+  --menu-surface: color-mix(in srgb, #141416 95%, transparent);
+  --menu-surface-solid: #1a1a1c;
+  --menu-border: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --menu-fg: color-mix(in srgb, var(--color-text) 92%, transparent);
+  --menu-fg-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --menu-fg-faint: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --menu-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --menu-divider: color-mix(in srgb, #ffffff 8%, transparent);
+  --segment-track: color-mix(in srgb, #000000 42%, transparent);
+  --hover-surface: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --control-fill: color-mix(in srgb, #ffffff 4%, transparent);
+  --control-fill-hover: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --panel-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --float-shadow: 0 4px 14px rgba(0, 0, 0, 0.42);
+
+  --tg-scrollbar-thumb: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  --tg-scrollbar-thumb-hover: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  --tg-scrollbar-thumb-active: color-mix(in srgb, var(--color-accent) 46%, transparent);
+}
+
+/* ——— Northern Ember: midnight + aurora ——— */
+.theme-ember {
+  color-scheme: dark;
+
+  --color-bg: #0a1018;
+  --color-sidebar: #111827;
+  --color-surface: #134e4a;
+  --color-surface-in: #152033;
+  --color-text: #e8eef5;
+  --color-text-muted: #8b9cb3;
+  --color-accent: #34d3a0;
+  --color-on-accent: #042f2e;
+  /* Warm ember for hangup / sparse highlights */
+  --color-ember: #ff7a59;
+  --call-hangup: #ff7a59;
+  --call-hangup-hover: #ef6a4a;
+
+  --app-bg: var(--color-bg);
+  --app-bg-elevated: var(--color-sidebar);
+  --surface: var(--color-sidebar);
+  --surface-elevated: var(--color-surface-in);
+  --surface-glass: color-mix(in srgb, var(--color-sidebar) 88%, transparent);
+  --surface-glass-strong: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
+  --surface-inset: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --hairline: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --text-faint: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+  --accent: var(--color-accent);
+  --accent-hover: color-mix(in srgb, var(--color-accent) 80%, white);
+  --accent-pressed: color-mix(in srgb, var(--color-accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  --accent-softer: color-mix(in srgb, var(--color-accent) 11%, transparent);
+  --accent-fg: #b8f7df;
+  --accent-border: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  --bubble-in: var(--color-surface-in);
+  --bubble-out-start: #0f3d3a;
+  --bubble-out-end: #0a2e2c;
+  --bubble-meta: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --bubble-meta-out: color-mix(in srgb, var(--color-accent) 52%, var(--color-text-muted));
+  --bubble-edited: color-mix(in srgb, var(--color-text) 38%, transparent);
+  --bubble-tick-sent: color-mix(in srgb, #99f6e4 48%, transparent);
+  --bubble-tick-read: #34d3a0;
+  --bubble-tick-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --on-bubble-fill: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, #ffffff 24%, transparent);
+  --on-bubble-track: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-progress: color-mix(in srgb, var(--color-accent) 70%, white);
+
+  --date-chip-bg: color-mix(in srgb, #000000 32%, transparent);
+  --date-chip-fg: color-mix(in srgb, var(--color-text) 48%, transparent);
+  --date-chip-border: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --date-chip-fg-hover: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --sticky-date-bg: color-mix(in srgb, #111827 90%, transparent);
+  --sticky-date-fg: color-mix(in srgb, var(--color-text) 72%, transparent);
+  --sticky-date-border: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --sticky-date-bg-hover: color-mix(in srgb, #152033 94%, transparent);
+
+  --menu-surface: color-mix(in srgb, #111827 94%, transparent);
+  --menu-surface-solid: #152033;
+  --menu-border: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --menu-fg: color-mix(in srgb, var(--color-text) 92%, transparent);
+  --menu-fg-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --menu-fg-faint: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --menu-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --menu-divider: color-mix(in srgb, #ffffff 10%, transparent);
+  --segment-track: color-mix(in srgb, #000000 38%, transparent);
+  --hover-surface: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --control-fill: color-mix(in srgb, #ffffff 5%, transparent);
+  --control-fill-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --panel-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --float-shadow: 0 4px 14px rgba(2, 12, 24, 0.4);
+
+  /* Sparse warm ember for danger/call accents via accent-pressed mix elsewhere */
+  --tg-scrollbar-thumb: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --tg-scrollbar-thumb-hover: color-mix(in srgb, var(--color-accent) 36%, transparent);
+  --tg-scrollbar-thumb-active: color-mix(in srgb, var(--color-accent) 48%, transparent);
+}
+
+/* Custom palette: base tokens set via JS; derivatives follow --color-* */
+.theme-custom {
+  color-scheme: dark;
+
+  /* Fallbacks until JS paints the saved palette */
+  --color-bg: #0b1220;
+  --color-sidebar: #121a2c;
+  --color-surface: #1a3a48;
+  --color-surface-in: #182233;
+  --color-text: #e8eef8;
+  --color-text-muted: #8b9bb4;
+  --color-accent: #5eead4;
+  --color-on-accent: #042f2e;
+
+  --app-bg: var(--color-bg);
+  --app-bg-elevated: var(--color-sidebar);
+  --surface: var(--color-sidebar);
+  --surface-elevated: var(--color-surface-in);
+  --surface-glass: color-mix(in srgb, var(--color-sidebar) 88%, transparent);
+  --surface-glass-strong: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
+  --surface-inset: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --hairline: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--color-text) 14%, transparent);
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --text-faint: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+  --accent: var(--color-accent);
+  --accent-hover: color-mix(in srgb, var(--color-accent) 82%, white);
+  --accent-pressed: color-mix(in srgb, var(--color-accent) 82%, black);
+  --accent-soft: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --accent-softer: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --accent-fg: color-mix(in srgb, var(--color-accent) 45%, white);
+  --accent-border: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  --bubble-in: var(--color-surface-in);
+  --bubble-out-start: var(--color-surface);
+  --bubble-out-end: color-mix(in srgb, var(--color-surface) 78%, black);
+  --bubble-meta: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --bubble-meta-out: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --bubble-edited: color-mix(in srgb, var(--color-text) 38%, transparent);
+  --bubble-tick-sent: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --bubble-tick-read: var(--color-accent);
+  --bubble-tick-hover: color-mix(in srgb, #ffffff 10%, transparent);
+  --on-bubble-fill: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, #ffffff 24%, transparent);
+  --on-bubble-track: color-mix(in srgb, #ffffff 14%, transparent);
+  --on-bubble-progress: color-mix(in srgb, var(--color-accent) 70%, white);
+
+  --date-chip-bg: color-mix(in srgb, #000000 30%, transparent);
+  --date-chip-fg: color-mix(in srgb, var(--color-text) 48%, transparent);
+  --date-chip-border: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --date-chip-fg-hover: color-mix(in srgb, var(--color-text) 90%, transparent);
+  --sticky-date-bg: color-mix(in srgb, var(--color-sidebar) 90%, transparent);
+  --sticky-date-fg: color-mix(in srgb, var(--color-text) 72%, transparent);
+  --sticky-date-border: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --sticky-date-bg-hover: color-mix(in srgb, var(--color-surface-in) 94%, transparent);
+
+  --menu-surface: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
+  --menu-surface-solid: var(--color-sidebar);
+  --menu-border: color-mix(in srgb, var(--color-text) 12%, transparent);
+  --menu-fg: color-mix(in srgb, var(--color-text) 92%, transparent);
+  --menu-fg-muted: color-mix(in srgb, var(--color-text) 55%, transparent);
+  --menu-fg-faint: color-mix(in srgb, var(--color-text) 35%, transparent);
+  --menu-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --menu-divider: color-mix(in srgb, #ffffff 10%, transparent);
+  --segment-track: color-mix(in srgb, #000000 35%, transparent);
+  --hover-surface: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --control-fill: color-mix(in srgb, #ffffff 5%, transparent);
+  --control-fill-hover: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --panel-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --float-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+
+  --tg-scrollbar-thumb: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --tg-scrollbar-thumb-hover: color-mix(in srgb, var(--color-accent) 36%, transparent);
+  --tg-scrollbar-thumb-active: color-mix(in srgb, var(--color-accent) 48%, transparent);
+  --call-hangup: #ef4444;
+  --call-hangup-hover: #dc2626;
+}
+
+/* Light custom — solid messenger chrome (mirrors .theme-light tokens) */
+.theme-custom.theme-custom-light {
+  color-scheme: light;
+  --surface-elevated: var(--color-surface-in);
+  --surface-glass: var(--color-sidebar);
+  --surface-glass-strong: var(--color-surface-in);
+  --accent-fg: color-mix(in srgb, var(--color-accent) 55%, black);
+  --bubble-out-end: var(--color-surface);
+  --bubble-tick-hover: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --on-bubble-fill: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --on-bubble-fill-strong: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --on-bubble-track: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --on-bubble-progress: var(--color-accent);
+  --date-chip-bg: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --menu-surface: var(--color-sidebar);
+  --menu-surface-solid: var(--color-sidebar);
+  --menu-divider: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --segment-track: color-mix(in srgb, var(--color-text) 8%, var(--color-sidebar));
+  --control-fill: var(--color-bg);
+  --control-fill-hover: color-mix(in srgb, var(--color-text) 6%, var(--color-bg));
+  --sticky-date-bg: var(--color-sidebar);
+  --sticky-date-bg-hover: var(--color-sidebar);
+  --panel-shadow: 0 12px 32px color-mix(in srgb, #0f172a 10%, transparent);
+  --bubble-shadow: 0 1px 1px color-mix(in srgb, #0f172a 4%, transparent);
+  --float-shadow: 0 2px 8px color-mix(in srgb, #0f172a 10%, transparent);
+}
+
 body,
 #root {
   background: var(--color-bg);
   color: var(--color-text);
+}
+
+/*
+ * macOS Vibrancy — only shell containers (sidebar / main).
+ * Do not retarget bubbles, composer, headers, or theme surface tokens.
+ */
+html.vibrancy-enabled body,
+html.vibrancy-enabled #root {
+  background: transparent !important;
+}
+
+html.vibrancy-enabled .tg-shell,
+html.vibrancy-enabled .tg-app {
+  background-color: transparent !important;
+}
+
+/* Main chat area ≈ 0.8 */
+html.vibrancy-enabled .tg-main,
+html.vibrancy-enabled .tg-chat-bg {
+  background-color: color-mix(in srgb, var(--color-bg) 80%, transparent) !important;
+}
+
+/* Sidebar (nav + chat list) ≈ 0.5 */
+html.vibrancy-enabled .tg-sidebar,
+html.vibrancy-enabled .tg-chatlist {
+  background-color: color-mix(in srgb, var(--color-sidebar) 50%, transparent) !important;
 }
 
 /* Twemoji images — same visual size as surrounding text glyphs */
@@ -279,6 +717,37 @@ body,
     radial-gradient(ellipse at 85% 92%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 48%);
 }
 
+html:is(.theme-light, .theme-custom-light) .tg-chat-bg {
+  /* Flat solid canvas — no frosted accent washes */
+  background-image: none;
+  background-color: var(--color-bg);
+}
+
+/* Orbit: soft nebula + sparse star points */
+html.theme-orbit .tg-chat-bg {
+  background-image:
+    radial-gradient(ellipse at 18% 8%, color-mix(in srgb, #5eead4 14%, transparent), transparent 52%),
+    radial-gradient(ellipse at 88% 90%, color-mix(in srgb, #7c6cf0 11%, transparent), transparent 48%),
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(255, 255, 255, 0.22), transparent),
+    radial-gradient(1px 1px at 38% 58%, rgba(255, 255, 255, 0.14), transparent),
+    radial-gradient(1.2px 1.2px at 72% 18%, rgba(255, 255, 255, 0.18), transparent),
+    radial-gradient(1px 1px at 86% 64%, rgba(255, 255, 255, 0.12), transparent),
+    radial-gradient(1px 1px at 54% 82%, rgba(255, 255, 255, 0.1), transparent);
+}
+
+html.theme-obsidian .tg-chat-bg {
+  background-image:
+    radial-gradient(ellipse at 16% 6%, color-mix(in srgb, #c6a75e 9%, transparent), transparent 50%),
+    radial-gradient(ellipse at 90% 94%, color-mix(in srgb, #c6a75e 5%, transparent), transparent 46%);
+}
+
+html.theme-ember .tg-chat-bg {
+  background-image:
+    radial-gradient(ellipse at 18% 8%, color-mix(in srgb, #34d3a0 12%, transparent), transparent 52%),
+    radial-gradient(ellipse at 92% 10%, color-mix(in srgb, #ff7a59 9%, transparent), transparent 42%),
+    radial-gradient(ellipse at 85% 92%, color-mix(in srgb, #34d3a0 6%, transparent), transparent 48%);
+}
+
 .tg-bubble {
   position: relative;
   display: flex;
@@ -293,9 +762,17 @@ body,
   color: var(--text);
   word-break: break-word;
   overflow-wrap: anywhere;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--bubble-shadow);
   border: 1px solid var(--hairline);
   overflow: hidden;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-bubble {
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-bubble--out {
+  border-color: rgba(37, 99, 235, 0.12);
 }
 
 /* Stickers: no bubble, compact, full image visible */
@@ -319,8 +796,7 @@ body,
 }
 
 .tg-sticker-wrap--flash {
-  outline: 2px solid rgba(99, 102, 241, 0.85);
-  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-hover) 90%, white);
   border-radius: 10px;
 }
 
@@ -337,7 +813,7 @@ body,
   padding: 0 2px;
   font-size: 11px;
   line-height: 1.2;
-  color: rgba(244, 244, 245, 0.45);
+  color: var(--bubble-meta);
   font-variant-numeric: tabular-nums;
   display: inline-flex;
   align-items: center;
@@ -432,7 +908,7 @@ input[type='search']::-webkit-search-decoration {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  color: rgba(244, 244, 245, 0.45);
+  color: var(--bubble-meta);
   user-select: none;
 }
 
@@ -443,15 +919,15 @@ input[type='search']::-webkit-search-decoration {
   margin-right: 2px;
   font-size: 10.5px;
   letter-spacing: 0.01em;
-  color: rgba(244, 244, 245, 0.38);
+  color: var(--bubble-edited);
 }
 
 .tg-bubble--out .tg-bubble-edited {
-  color: rgba(244, 244, 245, 0.45);
+  color: var(--bubble-meta-out);
 }
 
 .tg-bubble--out .tg-bubble-meta {
-  color: rgba(244, 244, 245, 0.55);
+  color: var(--bubble-meta-out);
 }
 
 .tg-bubble-ticks {
@@ -472,17 +948,17 @@ input[type='search']::-webkit-search-decoration {
 }
 
 .tg-bubble-ticks--btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bubble-tick-hover);
   transform: translateY(-0.5px);
 }
 
 .tg-bubble-ticks--sent {
-  color: rgba(224, 231, 255, 0.55);
+  color: var(--bubble-tick-sent);
 }
 
 .tg-bubble-ticks--read {
-  color: #7ec8ff;
-  filter: drop-shadow(0 0 4px rgba(126, 200, 255, 0.35));
+  color: var(--bubble-tick-read);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--bubble-tick-read) 35%, transparent));
 }
 
 .tg-read-by {
@@ -545,15 +1021,15 @@ input[type='search']::-webkit-search-decoration {
   font-size: 9.5px;
   font-weight: 650;
   letter-spacing: 0.01em;
-  color: rgba(244, 244, 245, 0.75);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 0 1.5px rgba(14, 22, 33, 0.92);
+  color: var(--menu-fg-muted);
+  background: var(--control-fill);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 0 0 1.5px var(--color-bg);
 }
 
 .tg-read-by-empty-label {
   font-size: 10.5px;
-  color: rgba(244, 244, 245, 0.45);
+  color: var(--menu-fg-faint);
   padding: 0 6px;
 }
 
@@ -565,11 +1041,12 @@ input[type='search']::-webkit-search-decoration {
   display: flex;
   flex-direction: column;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(22, 22, 30, 0.96);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--menu-border);
+  background: var(--menu-surface);
+  box-shadow: var(--panel-shadow);
   backdrop-filter: blur(16px);
   overflow: hidden;
+  color: var(--menu-fg);
 }
 
 .tg-readers-pop-head {
@@ -577,7 +1054,7 @@ input[type='search']::-webkit-search-decoration {
   align-items: center;
   gap: 8px;
   padding: 10px 10px 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--menu-divider);
 }
 
 .tg-readers-pop-title {
@@ -585,7 +1062,7 @@ input[type='search']::-webkit-search-decoration {
   min-width: 0;
   font-size: 12.5px;
   font-weight: 650;
-  color: rgba(244, 244, 245, 0.92);
+  color: var(--menu-fg);
 }
 
 .tg-readers-pop-close {
@@ -597,13 +1074,13 @@ input[type='search']::-webkit-search-decoration {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: rgba(244, 244, 245, 0.5);
+  color: var(--menu-fg-muted);
   cursor: pointer;
 }
 
 .tg-readers-pop-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(244, 244, 245, 0.9);
+  background: var(--menu-hover);
+  color: var(--menu-fg);
 }
 
 .tg-readers-pop-list {
@@ -622,7 +1099,7 @@ input[type='search']::-webkit-search-decoration {
 }
 
 .tg-readers-pop-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--menu-hover);
 }
 
 .tg-readers-pop-meta {
@@ -633,7 +1110,7 @@ input[type='search']::-webkit-search-decoration {
 .tg-readers-pop-name {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(244, 244, 245, 0.95);
+  color: var(--menu-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -642,7 +1119,7 @@ input[type='search']::-webkit-search-decoration {
 .tg-readers-pop-tag {
   margin-top: 1px;
   font-size: 11.5px;
-  color: rgba(244, 244, 245, 0.42);
+  color: var(--menu-fg-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -655,12 +1132,12 @@ input[type='search']::-webkit-search-decoration {
   padding: 18px 16px 20px;
   text-align: center;
   font-size: 13px;
-  color: rgba(244, 244, 245, 0.7);
+  color: var(--menu-fg-muted);
 }
 
 .tg-readers-pop-empty span {
   font-size: 11.5px;
-  color: rgba(244, 244, 245, 0.4);
+  color: var(--menu-fg-faint);
   line-height: 1.35;
 }
 
@@ -758,9 +1235,9 @@ input[type='search']::-webkit-search-decoration {
 .tg-date-sep button {
   font-size: 12px;
   line-height: 1;
-  color: rgba(244, 244, 245, 0.45);
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--date-chip-fg);
+  background: var(--date-chip-bg);
+  border: 1px solid var(--date-chip-border);
   padding: 5px 10px;
   border-radius: 999px;
   user-select: none;
@@ -768,8 +1245,55 @@ input[type='search']::-webkit-search-decoration {
 }
 
 .tg-date-sep button:hover {
-  color: rgba(244, 244, 245, 0.9);
-  border-color: rgba(129, 140, 248, 0.28);
+  color: var(--date-chip-fg-hover);
+  border-color: var(--accent-border);
+}
+
+.tg-call-tile {
+  display: flex;
+  justify-content: center;
+  padding: 6px 12px 2px;
+}
+
+.tg-call-tile-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  font-size: 12.5px;
+  line-height: 1.2;
+  color: var(--date-chip-fg);
+  background: var(--date-chip-bg);
+  border: 1px solid var(--date-chip-border);
+  padding: 6px 11px;
+  border-radius: 999px;
+  user-select: none;
+}
+
+.tg-call-tile-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.tg-call-tile-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-call-tile-duration,
+.tg-call-tile-time {
+  opacity: 0.72;
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
+
+.tg-call-tile--missed .tg-call-tile-inner {
+  color: #e11d48;
+  border-color: color-mix(in srgb, #e11d48 28%, transparent);
+  background: color-mix(in srgb, #e11d48 10%, var(--date-chip-bg));
 }
 
 .tg-sticky-date {
@@ -788,14 +1312,14 @@ input[type='search']::-webkit-search-decoration {
 .tg-sticky-date-pill {
   font-size: 12px;
   line-height: 1;
-  color: rgba(244, 244, 245, 0.72);
-  background: rgba(23, 33, 43, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--sticky-date-fg);
+  background: var(--sticky-date-bg);
+  border: 1px solid var(--sticky-date-border);
   padding: 5px 10px;
   border-radius: 999px;
   user-select: none;
   backdrop-filter: blur(10px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--panel-shadow);
   cursor: pointer;
   transition:
     background 0.15s ease,
@@ -805,9 +1329,9 @@ input[type='search']::-webkit-search-decoration {
 
 button.tg-sticky-date-pill:hover,
 button.tg-sticky-date-pill:focus-visible {
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(32, 46, 60, 0.95);
-  border-color: rgba(129, 140, 248, 0.35);
+  color: var(--date-chip-fg-hover);
+  background: var(--sticky-date-bg-hover);
+  border-color: var(--accent-border);
   outline: none;
 }
 
@@ -817,11 +1341,11 @@ button.tg-sticky-date-pill:focus-visible {
   width: 280px;
   padding: 12px;
   border-radius: 14px;
-  background: rgba(22, 32, 42, 0.97);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
+  box-shadow: var(--panel-shadow);
   backdrop-filter: blur(16px);
-  color: rgba(244, 244, 245, 0.9);
+  color: var(--menu-fg);
 }
 
 .tg-date-jump-head {
@@ -848,7 +1372,7 @@ button.tg-sticky-date-pill:focus-visible {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: rgba(244, 244, 245, 0.7);
+  color: var(--menu-fg-muted);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -856,8 +1380,8 @@ button.tg-sticky-date-pill:focus-visible {
 
 .tg-date-jump-nav:hover:not(:disabled),
 .tg-date-jump-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--menu-hover);
+  color: var(--menu-fg);
 }
 
 .tg-date-jump-nav:disabled {
@@ -874,7 +1398,7 @@ button.tg-sticky-date-pill:focus-visible {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: rgba(244, 244, 245, 0.4);
+  color: var(--menu-fg-faint);
 }
 
 .tg-date-jump-grid {
@@ -889,17 +1413,17 @@ button.tg-sticky-date-pill:focus-visible {
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: rgba(244, 244, 245, 0.85);
+  color: var(--menu-fg);
   font-size: 12px;
   cursor: pointer;
 }
 
 .tg-date-jump-day:hover:not(:disabled) {
-  background: rgba(129, 140, 248, 0.14);
+  background: var(--accent-softer);
 }
 
 .tg-date-jump-day--muted {
-  color: rgba(244, 244, 245, 0.28);
+  color: var(--menu-fg-faint);
 }
 
 .tg-date-jump-day--disabled {
@@ -908,17 +1432,17 @@ button.tg-sticky-date-pill:focus-visible {
 }
 
 .tg-date-jump-day--today {
-  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.45);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .tg-date-jump-day--selected {
   background: var(--accent-hover);
-  color: #0b1520;
+  color: var(--color-on-accent);
   font-weight: 650;
 }
 
 .tg-date-jump-day--selected:hover:not(:disabled) {
-  background: #7ec0ff;
+  background: var(--accent-hover);
 }
 
 .tg-date-jump-dot {
@@ -933,7 +1457,7 @@ button.tg-sticky-date-pill:focus-visible {
 }
 
 .tg-date-jump-day--selected .tg-date-jump-dot {
-  background: #0b1520;
+  background: var(--color-on-accent);
 }
 
 .tg-date-jump-footer {
@@ -943,7 +1467,7 @@ button.tg-sticky-date-pill:focus-visible {
   gap: 8px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--menu-divider);
 }
 
 .tg-date-jump-today-btn {
@@ -970,7 +1494,7 @@ button.tg-sticky-date-pill:focus-visible {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: rgba(244, 244, 245, 0.55);
+  color: var(--menu-fg-muted);
 }
 
 .tg-unread-sep {
@@ -1048,12 +1572,12 @@ button.tg-sticky-date-pill:focus-visible {
   padding: 0 5px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--color-on-accent);
   font-size: 11px;
   font-weight: 700;
   line-height: 20px;
   text-align: center;
-  border: 2px solid rgba(14, 22, 33, 0.9);
+  border: 2px solid var(--color-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -1130,21 +1654,122 @@ button.tg-sticky-date-pill:focus-visible {
   transition:
     background var(--ease-ui) ease,
     color var(--ease-ui) ease,
-    transform 0.1s ease;
+    transform 120ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 120ms ease,
+    box-shadow 160ms ease,
+    opacity 120ms ease;
 }
 
 .tg-send-btn:hover {
   background: var(--accent-hover);
 }
 
-.tg-send-btn:active {
-  transform: scale(0.94);
+.tg-send-btn:active:not(:disabled) {
+  transform: scale(0.9);
+  filter: brightness(1.06);
   background: var(--accent-pressed);
 }
 
 .tg-audio audio {
   color-scheme: dark;
   border-radius: 10px;
+}
+
+.tg-audio-play {
+  background: var(--on-bubble-fill);
+  color: var(--color-text);
+}
+.tg-audio-play:hover {
+  background: var(--on-bubble-fill-strong);
+}
+.tg-audio-track {
+  background: var(--on-bubble-track);
+}
+.tg-audio-progress {
+  background: var(--on-bubble-progress);
+}
+.tg-audio-time {
+  color: var(--bubble-meta-out);
+}
+
+/* Context menus — theme-aware glass panels */
+.tg-ctx-menu {
+  background: var(--menu-surface-solid);
+  border: 1px solid var(--menu-border);
+  color: var(--menu-fg);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.tg-ctx-sep {
+  background: var(--menu-divider);
+}
+.tg-ctx-item {
+  color: var(--menu-fg);
+}
+.tg-ctx-item:hover:not(:disabled),
+.tg-ctx-item--open {
+  background: var(--menu-hover);
+}
+.tg-ctx-item-icon {
+  color: var(--menu-fg-muted);
+}
+.tg-ctx-item-hint {
+  color: var(--menu-fg-faint);
+}
+.tg-ctx-field {
+  background: var(--surface-inset);
+  border: 1px solid var(--hairline);
+  color: var(--menu-fg);
+}
+.tg-ctx-field::placeholder {
+  color: var(--menu-fg-muted);
+  opacity: 1;
+}
+.tg-ctx-field:focus {
+  border-color: var(--accent-border);
+  outline: none;
+}
+
+/* Emerald CTA — readable on both light and dark */
+.tg-btn-emerald {
+  background: color-mix(in srgb, #10b981 18%, transparent);
+  border: 1px solid color-mix(in srgb, #34d399 42%, transparent);
+  color: #a7f3d0;
+  transition:
+    background var(--ease-ui) ease,
+    border-color var(--ease-ui) ease,
+    color var(--ease-ui) ease;
+}
+.tg-btn-emerald:hover:not(:disabled) {
+  background: color-mix(in srgb, #10b981 28%, transparent);
+}
+.tg-btn-emerald:disabled {
+  opacity: 0.5;
+}
+html:is(.theme-light, .theme-custom-light) .tg-btn-emerald {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+html:is(.theme-light, .theme-custom-light) .tg-btn-emerald:hover:not(:disabled) {
+  background: #d1fae5;
+  color: #065f46;
+}
+.tg-msg-actions {
+  background: var(--menu-surface-solid);
+  border: 1px solid var(--menu-border);
+  color: var(--menu-fg);
+  box-shadow: var(--float-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.tg-msg-actions-btn {
+  color: var(--menu-fg-muted);
+}
+.tg-msg-actions-btn:hover {
+  background: var(--menu-hover);
+  color: var(--menu-fg);
 }
 
 /* Telegram-like album grids */
@@ -1271,9 +1896,146 @@ button.tg-sticky-date-pill:focus-visible {
   overscroll-behavior-y: contain;
   scroll-behavior: auto;
 }
+/* Focusable for keyboard scroll (tabIndex=-1) — hide browser focus ring */
+.tg-timeline-scroll:focus,
+.tg-timeline-scroll:focus-visible {
+  outline: none;
+}
+
+/* Trackpad swipe-to-reply (DOM-only; does not affect virtualization) */
+.tg-msg-swipe-target {
+  will-change: transform;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.tg-msg-swipe-target.tg-msg-swipe-dragging {
+  transition: none;
+}
+.tg-msg-swipe-target.tg-msg-swipe-spring,
+.tg-msg-swipe-target.tg-msg-swipe-commit {
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.tg-msg-swipe-reply-icon {
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--color-accent, #6cb2ff);
+  background: color-mix(in srgb, var(--color-accent, #6cb2ff) 14%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) scale(0.55);
+  transition:
+    opacity 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1.2, 0.36, 1),
+    background 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+.tg-msg-swipe-dragging .tg-msg-swipe-reply-icon {
+  transition:
+    opacity 80ms linear,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+.tg-msg-swipe-reply-icon-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+.tg-msg-swipe-reply-icon--armed {
+  background: color-mix(in srgb, var(--color-accent, #6cb2ff) 30%, transparent);
+  color: var(--color-accent, #6cb2ff);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent, #6cb2ff) 40%, transparent),
+    0 4px 14px color-mix(in srgb, var(--color-accent, #6cb2ff) 22%, transparent);
+}
+.tg-msg-swipe-reply-icon-glyph.tg-msg-swipe-reply-icon--pop {
+  animation: tg-swipe-icon-pop 320ms cubic-bezier(0.34, 1.55, 0.48, 1) both;
+}
+.tg-msg-swipe-reply-icon-glyph.tg-msg-swipe-reply-icon--fire {
+  animation: tg-swipe-icon-fire 300ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+.tg-msg-swipe-armed .tg-bubble,
+.tg-msg-swipe-armed .tg-sticker {
+  filter: brightness(1.03);
+}
+
+@keyframes tg-swipe-icon-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  55% {
+    transform: scale(1.28);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes tg-swipe-icon-fire {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.32);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-msg-swipe-target,
+  .tg-msg-swipe-reply-icon,
+  .tg-msg-swipe-reply-icon-glyph {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Chat exit layer — underlay is the empty "select a chat" screen */
+.tg-chat-layer {
+  background: var(--color-bg, #0b141a);
+  will-change: transform;
+  transition: transform 480ms cubic-bezier(0.22, 1.15, 0.36, 1);
+}
+.tg-chat-layer.tg-chat-exit-target.tg-chat-exit-dragging {
+  transition: none;
+}
+.tg-chat-layer--closing {
+  pointer-events: none;
+}
+
+.tg-timeline-scroll[data-tg-gesturing] .tg-msg-actions {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-chat-layer,
+  .tg-chat-layer--closing {
+    transition: none !important;
+  }
+}
 
 .tg-msg-highlight .tg-bubble {
-  animation: tg-highlight-pulse 2s ease;
+  animation: tg-highlight-pulse 1.8s ease;
+}
+
+.tg-msg-highlight .tg-bubble--out {
+  animation-name: tg-highlight-pulse-out;
 }
 
 /* CSS Custom Highlight API — scrolls with text, glyphs stay visible */
@@ -1336,7 +2098,7 @@ mark.tg-quote-text-hl {
   pointer-events: none;
   border-radius: inherit;
   box-shadow: inset 0 0 0 3px var(--accent-hover);
-  background: rgba(129, 140, 248, 0.18);
+  background: var(--accent-soft);
   animation: tg-cell-flash-overlay 1.6s ease;
 }
 
@@ -1424,8 +2186,10 @@ mark.tg-quote-text-hl {
 }
 
 .tg-msg-bubble-selected {
-  outline: 1.5px solid rgba(129, 140, 248, 0.55);
-  outline-offset: 1px;
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in srgb, var(--accent-hover) 70%, white),
+    0 1px 2px rgba(0, 0, 0, 0.28);
+  outline: none;
 }
 
 .tg-reply-chip {
@@ -1437,13 +2201,41 @@ mark.tg-quote-text-hl {
   text-align: left;
   border: none;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
   cursor: pointer;
   transition: background 0.12s ease;
 }
 
 .tg-reply-chip:hover {
-  background: rgba(0, 0, 0, 0.28);
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-reply-chip {
+  background: #e8edf4;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-reply-chip:hover {
+  background: #dde4ee;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-md-quote {
+  background: #e8edf4;
+  color: #374151;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-bubble--out .tg-md-quote {
+  background: #d5e4f7;
+  color: #1f2937;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-composer {
+  background: #f7f8fa;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-bubble-ticks--read {
+  filter: none;
 }
 
 .tg-reply-chip--quote .tg-reply-chip-bar {
@@ -1468,14 +2260,14 @@ mark.tg-quote-text-hl {
   padding: 5px 8px 5px 0;
   border: none;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.22);
-  color: rgba(244, 244, 245, 0.68);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--menu-fg-muted);
   font-size: 13px;
   line-height: 1.35;
 }
 
 .tg-bubble--out .tg-md-quote {
-  background: rgba(0, 0, 0, 0.2);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
 }
 
 .tg-md-quote-bar {
@@ -1483,7 +2275,7 @@ mark.tg-quote-text-hl {
   flex-shrink: 0;
   align-self: stretch;
   border-radius: 3px;
-  background: rgba(129, 140, 248, 0.9);
+  background: var(--accent);
 }
 
 .tg-md-quote-text {
@@ -1546,14 +2338,26 @@ mark.tg-quote-text-hl {
 
 
 @keyframes tg-highlight-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.55);
-  }
-  35% {
-    box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.35);
+  0%,
+  45% {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--accent-hover) 90%, white),
+      var(--bubble-shadow);
   }
   100% {
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+    box-shadow: var(--bubble-shadow);
+  }
+}
+
+@keyframes tg-highlight-pulse-out {
+  0%,
+  45% {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--accent-hover) 95%, white),
+      var(--bubble-shadow);
+  }
+  100% {
+    box-shadow: var(--bubble-shadow);
   }
 }
 
@@ -1580,12 +2384,16 @@ mark.tg-quote-text-hl {
 }
 
 .tg-msg-search-hit .tg-bubble {
-  outline: 2px solid rgba(250, 204, 21, 0.55);
-  outline-offset: 1px;
+  /* Inset ring stays inside the bubble (outline + offset spilled outside). */
+  box-shadow:
+    inset 0 0 0 2px rgba(250, 204, 21, 0.7),
+    var(--bubble-shadow);
 }
 
 .tg-msg-search-hit .tg-bubble--out {
-  outline-color: rgba(250, 204, 21, 0.65);
+  box-shadow:
+    inset 0 0 0 2px rgba(250, 204, 21, 0.8),
+    var(--bubble-shadow);
 }
 
 .tg-md {
@@ -1655,6 +2463,18 @@ mark.tg-quote-text-hl {
   pointer-events: none;
 }
 
+/* Light theme: subtle underlay so spoiler chip is visible before dots paint */
+html:is(.theme-light, .theme-custom-light) .tg-mx-spoiler:not(.tg-mx-spoiler--revealed) {
+  background: rgba(0, 0, 0, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  padding: 0 2px;
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-bubble--out .tg-mx-spoiler:not(.tg-mx-spoiler--revealed) {
+  background: rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
 .tg-mx-spoiler-noise {
   position: absolute;
   inset: 0;
@@ -1675,7 +2495,7 @@ mark.tg-quote-text-hl {
   background: rgba(0, 0, 0, 0.14);
 }
 
-html.theme-light .tg-mx-spoiler--revealed {
+html:is(.theme-light, .theme-custom-light) .tg-mx-spoiler--revealed {
   background: rgba(0, 0, 0, 0.05);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
@@ -1691,9 +2511,54 @@ html.theme-light .tg-mx-spoiler--revealed {
   }
 }
 
+@keyframes tg-ctx-pop {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes tg-composer-bar-glow {
+  from {
+    filter: brightness(1.35);
+    opacity: 0.65;
+  }
+  to {
+    filter: brightness(1);
+    opacity: 1;
+  }
+}
+
+.tg-composer-banner-bar {
+  animation: tg-composer-bar-glow 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-ctx-menu,
+  .tg-composer-banner-bar,
+  .animate-\[tg-ctx-pop_160ms_cubic-bezier\(0\.22\,1\,0\.36\,1\)_both\],
+  .animate-\[tg-ctx-fade_120ms_ease-out\] {
+    animation: none !important;
+  }
+
+  .tg-send-btn,
+  .tg-icon-btn {
+    transition: none !important;
+  }
+
+  .tg-send-btn:active:not(:disabled),
+  .tg-icon-btn:active:not(:disabled) {
+    transform: none !important;
+  }
+}
+
 /* ——— Themes (class on <html>) ——— */
 html.dark,
-html:not(.theme-light) {
+html:not(:is(.theme-light, .theme-custom-light)) {
   color-scheme: dark;
 }
 
@@ -1779,6 +2644,94 @@ html:not(.theme-light) {
 
 .tg-nav-btn--notify .tg-nav-icon {
   color: var(--accent-hover);
+}
+
+/* Connection status in the left rail */
+.tg-nav-btn--sync-ok .tg-nav-icon {
+  color: #34d399;
+}
+.tg-nav-btn--sync-ok:hover {
+  border-color: color-mix(in srgb, #34d399 40%, transparent);
+  background: color-mix(in srgb, #34d399 12%, transparent);
+}
+.tg-nav-btn--sync-busy .tg-nav-icon {
+  color: var(--accent-hover);
+}
+.tg-nav-btn--sync-busy {
+  border-color: var(--accent-border);
+  background: var(--accent-softer);
+}
+.tg-nav-btn--sync-warn .tg-nav-icon {
+  color: #fbbf24;
+}
+.tg-nav-btn--sync-warn {
+  border-color: color-mix(in srgb, #fbbf24 42%, transparent);
+  background: color-mix(in srgb, #fbbf24 12%, transparent);
+}
+.tg-nav-btn--sync-bad .tg-nav-icon {
+  color: #f87171;
+}
+.tg-nav-btn--sync-bad {
+  border-color: color-mix(in srgb, #f87171 45%, transparent);
+  background: color-mix(in srgb, #f87171 14%, transparent);
+}
+
+.tg-sync-dot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1.5px solid var(--color-sidebar, var(--color-bg));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.tg-sync-dot--ok {
+  background: #34d399;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #34d399 35%, transparent);
+}
+.tg-sync-dot--busy {
+  background: var(--color-accent);
+  animation: tg-sync-pulse 1.2s ease-in-out infinite;
+}
+.tg-sync-dot--warn {
+  background: #fbbf24;
+  animation: tg-sync-pulse 1.2s ease-in-out infinite;
+}
+.tg-sync-dot--bad {
+  background: #f87171;
+}
+
+@keyframes tg-sync-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-nav-btn--sync-ok .tg-nav-icon {
+  color: #059669;
+}
+html:is(.theme-light, .theme-custom-light) .tg-nav-btn--sync-warn .tg-nav-icon {
+  color: #d97706;
+}
+html:is(.theme-light, .theme-custom-light) .tg-nav-btn--sync-bad .tg-nav-icon {
+  color: #dc2626;
+}
+html:is(.theme-light, .theme-custom-light) .tg-sync-dot--ok {
+  background: #059669;
+}
+html:is(.theme-light, .theme-custom-light) .tg-sync-dot--warn {
+  background: #d97706;
+}
+html:is(.theme-light, .theme-custom-light) .tg-sync-dot--bad {
+  background: #dc2626;
 }
 
 .tg-invites-panel {
@@ -1933,39 +2886,39 @@ html:not(.theme-light) {
   color: var(--text-faint);
 }
 
-html.theme-light .tg-invites-head-title,
-html.theme-light .tg-invite-title {
+html:is(.theme-light, .theme-custom-light) .tg-invites-head-title,
+html:is(.theme-light, .theme-custom-light) .tg-invite-title {
   color: rgba(15, 23, 42, 0.9);
 }
 
-html.theme-light .tg-invite-sub {
+html:is(.theme-light, .theme-custom-light) .tg-invite-sub {
   color: rgba(15, 23, 42, 0.5);
 }
 
-html.theme-light .tg-invite-time,
-html.theme-light .tg-invites-empty-hint {
+html:is(.theme-light, .theme-custom-light) .tg-invite-time,
+html:is(.theme-light, .theme-custom-light) .tg-invites-empty-hint {
   color: rgba(15, 23, 42, 0.4);
 }
 
-html.theme-light .tg-invites-empty-title {
+html:is(.theme-light, .theme-custom-light) .tg-invites-empty-title {
   color: rgba(15, 23, 42, 0.55);
 }
 
-html.theme-light .tg-invites-empty-icon {
+html:is(.theme-light, .theme-custom-light) .tg-invites-empty-icon {
   color: rgba(15, 23, 42, 0.25);
 }
 
-html.theme-light .tg-invites-panel {
+html:is(.theme-light, .theme-custom-light) .tg-invites-panel {
   background: rgba(255, 255, 255, 0.97);
   border-color: rgba(15, 23, 42, 0.1);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.14);
 }
 
-html.theme-light .tg-invites-head {
+html:is(.theme-light, .theme-custom-light) .tg-invites-head {
   border-bottom-color: rgba(15, 23, 42, 0.08);
 }
 
-html.theme-light .tg-invite-row:hover {
+html:is(.theme-light, .theme-custom-light) .tg-invite-row:hover {
   background: rgba(15, 23, 42, 0.04);
 }
 
@@ -1975,14 +2928,120 @@ html.theme-light .tg-invite-row:hover {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+
+/* Resize strip on the chat-list right border (absolute, inside the list). */
+.tg-col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.tg-col-resize::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s ease, width 0.12s ease, box-shadow 0.12s ease;
+  pointer-events: none;
+}
+.tg-col-resize:hover::before,
+body.tg-col-resizing .tg-col-resize::before {
+  width: 2px;
+  background: color-mix(in srgb, var(--accent) 75%, white);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+body.tg-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.tg-col-resizing .tg-pin-reorder-item {
+  pointer-events: none !important;
+}
+body.tg-col-resizing iframe,
+body.tg-col-resizing img,
+body.tg-col-resizing video {
+  pointer-events: none !important;
+}
+
+/* Chat list loading skeleton — soft shimmer over sidebar tokens */
+.tg-skel {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  isolation: isolate;
+}
+.tg-skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-text) 0%, transparent) 28%,
+    color-mix(in srgb, var(--color-text) 12%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 0%, transparent) 72%,
+    transparent 100%
+  );
+  animation: tg-skel-shimmer 1.35s ease-in-out infinite;
+  animation-delay: var(--tg-skel-delay, 0ms);
+}
+.tg-skel--circle {
+  border-radius: 9999px;
+}
+html:is(.theme-light, .theme-custom-light) .tg-skel {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+html:is(.theme-light, .theme-custom-light) .tg-skel::after {
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-text) 0%, transparent) 28%,
+    color-mix(in srgb, var(--color-text) 14%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 0%, transparent) 72%,
+    transparent 100%
+  );
+}
+@keyframes tg-skel-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-skel::after {
+    animation: none;
+    opacity: 0;
+  }
+}
 .tg-header-bar {
   background: color-mix(in srgb, var(--color-sidebar) 92%, transparent);
   border-color: var(--hairline);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  /* Default; raised to z-40 while in-chat search is open so results
+     paint above the pinned bar (sibling that used to cover the dropdown). */
   z-index: 30;
 }
-
+.tg-pinned-bar-slot {
+  background: color-mix(in srgb, var(--color-sidebar) 92%, transparent);
+  border-color: var(--hairline);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  /* Keep below header/search dropdown stacking context */
+  z-index: 20;
+  isolation: isolate;
+}
 .tg-pinned-bar {
   border-color: var(--hairline);
   /* Slot already draws the bottom edge of the chrome above the timeline */
@@ -1992,12 +3051,6 @@ html.theme-light .tg-invite-row:hover {
     color-mix(in srgb, var(--color-accent) 10%, transparent) 0%,
     transparent 42%
   );
-}
-.tg-pinned-bar-slot {
-  background: color-mix(in srgb, var(--color-sidebar) 92%, transparent);
-  border-color: var(--hairline);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 .tg-pinned-bar:hover {
   background: linear-gradient(
@@ -2070,9 +3123,9 @@ html.theme-light .tg-invite-row:hover {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(244, 244, 245, 0.55);
+  border: 1px solid var(--hairline);
+  background: var(--control-fill);
+  color: var(--menu-fg-muted);
   transition:
     background 0.12s ease,
     color 0.12s ease,
@@ -2101,36 +3154,36 @@ html.theme-light .tg-invite-row:hover {
 }
 
 .tg-search-results-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-surface);
 }
 
 .tg-search-results-item--active {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--menu-hover);
 }
 
 .tg-search-results-snippet {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--menu-fg-muted);
 }
 
 .tg-search-results-more {
-  color: rgba(255, 255, 255, 0.35);
-  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--menu-fg-faint);
+  border-color: var(--hairline);
 }
 
 .tg-search-nav-count {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--menu-fg);
 }
 
 .tg-search-nav-count:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-surface);
 }
 
 .tg-search-nav-sep {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--menu-fg-faint);
 }
 
 .tg-search-nav-empty {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--menu-fg-faint);
 }
 
 @keyframes tg-search-pop {
@@ -2150,26 +3203,42 @@ html.theme-light .tg-invite-row:hover {
   color: var(--text);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--panel-shadow);
   border-radius: var(--radius-panel) 0 0 var(--radius-panel);
 }
 
 .tg-profile-panel-header,
 .tg-profile-panel-hero {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--hairline);
 }
 
 .tg-profile-member:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-surface);
+}
+
+.tg-profile-member--focus {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent) 45%, transparent);
+  animation: tg-profile-focus-pulse 1.6s ease-out 1;
+}
+
+@keyframes tg-profile-focus-pulse {
+  0% {
+    background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  }
 }
 
 .tg-profile-busy {
-  background: rgba(0, 0, 0, 0.25);
-  color: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  color: var(--menu-fg-muted);
 }
 
 .tg-profile-tabs {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--hairline);
 }
 
 .tg-profile-tab-count {
@@ -2210,9 +3279,128 @@ html.theme-light .tg-invite-row:hover {
 }
 
 .tg-profile-file-icon {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(244, 244, 245, 0.7);
+  background: var(--control-fill);
+  color: var(--menu-fg-muted);
 }
+
+.tg-profile-role {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  vertical-align: 1px;
+}
+.tg-profile-role--owner {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--accent-fg);
+}
+.tg-profile-role--admin {
+  background: color-mix(in srgb, #eab308 18%, transparent);
+  color: color-mix(in srgb, #ca8a04 35%, var(--color-text));
+}
+.tg-profile-role--mod {
+  background: color-mix(in srgb, #0ea5e9 16%, transparent);
+  color: color-mix(in srgb, #0284c7 30%, var(--color-text));
+}
+
+.tg-profile-section-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 10px 12px 6px;
+}
+
+.tg-admin-dialog {
+  background: var(--surface-glass-strong);
+  border-color: var(--hairline);
+  color: var(--text);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--panel-shadow);
+}
+.tg-admin-dialog-icon--danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+.tg-admin-dialog-icon--soft {
+  background: var(--control-fill);
+  color: var(--menu-fg-muted);
+}
+.tg-admin-dialog-target {
+  background: var(--control-fill);
+  border: 1px solid var(--hairline);
+}
+.tg-admin-dialog-reason {
+  background: var(--surface-inset);
+  border: 1px solid var(--hairline);
+  color: var(--color-text);
+}
+.tg-admin-dialog-reason:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.tg-admin-dialog-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  color: #f87171;
+}
+html:is(.theme-light, .theme-custom-light) .tg-admin-dialog-error {
+  color: #b91c1c;
+}
+.tg-admin-dialog-footer {
+  background: var(--surface-inset);
+  border-top: 1px solid var(--hairline);
+}
+
+.tg-poll-card {
+  color: var(--color-text);
+}
+.tg-poll-option {
+  background: var(--control-fill);
+  border: 1px solid var(--hairline);
+}
+.tg-poll-option:hover:not(:disabled) {
+  background: var(--control-fill-hover);
+}
+.tg-poll-option--selected {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.tg-poll-option-bar {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  transition: width 0.25s ease;
+}
+.tg-poll-option-check {
+  border: 1.5px solid var(--hairline-strong);
+  color: transparent;
+  background: transparent;
+}
+.tg-poll-option--selected .tg-poll-option-check {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.tg-btn-ghost {
+  border: 1px solid var(--hairline);
+  background: var(--control-fill);
+  color: var(--menu-fg);
+  transition:
+    background var(--ease-ui) ease,
+    border-color var(--ease-ui) ease,
+    color var(--ease-ui) ease;
+}
+.tg-btn-ghost:hover:not(:disabled) {
+  background: var(--control-fill-hover);
+  color: var(--color-text);
+}
+.tg-btn-ghost:disabled {
+  opacity: 0.4;
+}
+
 .tg-title {
   color: var(--color-text);
 }
@@ -2231,7 +3419,8 @@ html.theme-light .tg-invite-row:hover {
     background var(--ease-ui) ease;
 }
 .tg-field::placeholder {
-  color: var(--text-faint);
+  color: var(--text-muted);
+  opacity: 1;
 }
 .tg-field:focus {
   border-color: var(--accent-border);
@@ -2264,11 +3453,15 @@ html.theme-light .tg-invite-row:hover {
   transition:
     color var(--ease-ui) ease,
     background var(--ease-ui) ease,
-    opacity var(--ease-ui) ease;
+    opacity var(--ease-ui) ease,
+    transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .tg-icon-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+  background: var(--hover-surface);
+}
+.tg-icon-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 .tg-icon-btn--active {
   background: var(--accent-soft);
@@ -2279,7 +3472,7 @@ html.theme-light .tg-invite-row:hover {
   transition: background var(--ease-ui) ease;
 }
 .tg-hover-surface:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover-surface);
 }
 
 /* macOS-style segmented control */
@@ -2287,7 +3480,7 @@ html.theme-light .tg-invite-row:hover {
   gap: 0;
   padding: 4px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--segment-track);
   border: 1px solid var(--hairline);
 }
 .tg-tab {
@@ -2314,20 +3507,20 @@ html.theme-light .tg-invite-row:hover {
   background: var(--accent-soft);
   color: var(--color-text);
   border-color: var(--accent-border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000000 18%, transparent);
 }
 .tg-room-item {
   transition: background var(--ease-ui) ease;
 }
 .tg-room-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-surface);
 }
 .tg-room-item--active {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 .tg-room-name {
-  color: #fff;
+  color: var(--color-text);
 }
 .tg-room-time {
   color: var(--text-muted);
@@ -2342,10 +3535,17 @@ html.theme-light .tg-invite-row:hover {
   color: var(--color-text);
 }
 .tg-room-preview-icon {
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 .tg-room-item--active .tg-room-preview-icon {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--menu-fg-muted);
+}
+
+html:is(.theme-light, .theme-custom-light) .tg-profile-role--admin {
+  color: #a16207;
+}
+html:is(.theme-light, .theme-custom-light) .tg-profile-role--mod {
+  color: #0369a1;
 }
 
 /* ——— Draft indicator (Telegram-style soft red) ——— */
@@ -2356,10 +3556,10 @@ html.theme-light .tg-invite-row:hover {
   color: #f87171;
   opacity: 0.85;
 }
-html.theme-light .tg-room-preview--draft {
+html:is(.theme-light, .theme-custom-light) .tg-room-preview--draft {
   color: color-mix(in srgb, #dc2626 78%, var(--color-text-muted));
 }
-html.theme-light .tg-room-preview--draft .tg-room-preview-icon {
+html:is(.theme-light, .theme-custom-light) .tg-room-preview--draft .tg-room-preview-icon {
   color: #dc2626;
 }
 .tg-room-preview-rich {
@@ -2482,34 +3682,146 @@ html.theme-light .tg-room-preview--draft .tg-room-preview-icon {
   text-align: center;
 }
 
-html.theme-light .tg-chat-peek-card {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-card {
   background: rgba(248, 250, 252, 0.96);
   border-color: rgba(15, 23, 42, 0.08);
   box-shadow:
     0 18px 40px rgba(15, 23, 42, 0.18),
     0 0 0 1px rgba(15, 23, 42, 0.04);
 }
-html.theme-light .tg-chat-peek-header {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-header {
   border-bottom-color: rgba(15, 23, 42, 0.06);
 }
-html.theme-light .tg-chat-peek-title {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-title {
   color: #0f172a;
 }
-html.theme-light .tg-chat-peek-sub {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-sub {
   color: rgba(15, 23, 42, 0.45);
 }
-html.theme-light .tg-chat-peek-body {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-body {
   background: rgba(241, 245, 249, 0.9);
 }
-html.theme-light .tg-peek-bubble--in {
+html:is(.theme-light, .theme-custom-light) .tg-peek-bubble--in {
   background: #fff;
   color: #0f172a;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
-html.theme-light .tg-chat-peek-footer {
+html:is(.theme-light, .theme-custom-light) .tg-chat-peek-footer {
   color: rgba(15, 23, 42, 0.45);
   border-top-color: rgba(15, 23, 42, 0.06);
   background: rgba(255, 255, 255, 0.7);
+}
+
+/* ——— Mention user card (click @tag) ——— */
+.tg-mention-card {
+  animation: tg-mention-card-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top left;
+  filter: drop-shadow(0 14px 28px color-mix(in srgb, #000 35%, transparent));
+}
+@keyframes tg-mention-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.tg-mention-card-inner {
+  border-radius: 16px;
+  border: 1px solid var(--hairline);
+  background: var(--menu-surface-solid);
+  color: var(--color-text);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  overflow: hidden;
+}
+.tg-mention-card-handle {
+  color: var(--mention-accent, var(--accent-fg));
+  font-weight: 550;
+}
+.tg-mention-card-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--mention-accent, var(--accent-fg));
+  background: var(--mention-accent-soft, var(--accent-soft));
+  border: 1px solid color-mix(in srgb, var(--mention-accent, var(--accent)) 28%, transparent);
+}
+.tg-mention-card-chip--muted {
+  color: var(--text-muted);
+  background: var(--surface-inset);
+  border-color: var(--hairline);
+}
+.tg-mention-card-mxid {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-muted);
+  background: var(--surface-inset);
+  border: 1px solid transparent;
+  transition:
+    background var(--ease-ui, 0.15s) ease,
+    border-color var(--ease-ui, 0.15s) ease,
+    color var(--ease-ui, 0.15s) ease;
+}
+.tg-mention-card-mxid:hover {
+  color: var(--color-text);
+  border-color: var(--hairline);
+  background: color-mix(in srgb, var(--surface-inset) 70%, var(--accent-soft));
+}
+.tg-mention-card-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--surface-inset);
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+  transition:
+    background var(--ease-ui, 0.15s) ease,
+    border-color var(--ease-ui, 0.15s) ease,
+    color var(--ease-ui, 0.15s) ease,
+    transform 0.12s ease;
+}
+.tg-mention-card-btn:hover {
+  background: color-mix(in srgb, var(--surface-inset) 55%, var(--accent-soft));
+  border-color: var(--accent-border);
+}
+.tg-mention-card-btn:active {
+  transform: scale(0.98);
+}
+.tg-mention-card-btn--primary {
+  color: var(--color-on-accent, #fff);
+  background: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+.tg-mention-card-btn--primary:hover {
+  background: var(--accent-hover, var(--color-accent));
+  border-color: var(--accent-hover, var(--color-accent));
+  color: var(--color-on-accent, #fff);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-mention-card {
+    animation: none;
+  }
 }
 
 .tg-video-thumb {
@@ -2563,15 +3875,16 @@ html.theme-light .tg-chat-peek-footer {
   background: var(--color-text);
   color: var(--color-bg);
 }
-.tg-decrypt-fail {
-  color: rgba(255, 255, 255, 0.45);
+.tg-decrypt-fail,
+.tg-msg-placeholder {
+  color: var(--text-muted);
 }
 .tg-picker-tab {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-muted);
 }
 .tg-picker-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--hover-surface);
+  color: var(--color-text);
 }
 .tg-picker-tab--active {
   background: var(--accent-soft);
@@ -2579,50 +3892,62 @@ html.theme-light .tg-chat-peek-footer {
   border: 1px solid var(--accent-border);
 }
 .tg-picker-empty {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-muted);
 }
 .tg-picker-chip {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
+  background: var(--control-fill);
+  border: 1px solid transparent;
 }
 .tg-picker-chip:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.8);
+  background: var(--control-fill-hover);
+  color: var(--color-text);
 }
 .tg-picker-chip--active {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  border-color: var(--accent-border);
 }
 .tg-picker-cell {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--control-fill);
 }
 .tg-picker-cell:hover {
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.45);
+  background: var(--control-fill-hover);
+  box-shadow: 0 0 0 2px var(--accent-border);
 }
 .tg-picker-cell:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.55);
+  box-shadow: 0 0 0 2px var(--accent-border);
 }
 .tg-picker-section-label {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
 }
 .tg-picker-search-icon {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
   display: block;
   flex-shrink: 0;
   width: 0.9375rem;
   height: 0.9375rem;
 }
 
-
 .tg-sticker-picker {
   width: min(340px, calc(100vw - 24px));
   height: 320px;
   border-radius: var(--radius-panel);
   border: 1px solid var(--hairline-strong);
-  background: var(--surface-glass-strong);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  background: var(--menu-surface-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--panel-shadow);
   overflow: hidden;
+  color: var(--color-text);
+}
+
+.tg-sticker-picker .tg-field {
+  background: var(--surface-inset);
+  color: var(--color-text);
+}
+.tg-sticker-picker .tg-field::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
 }

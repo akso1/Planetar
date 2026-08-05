@@ -10,6 +10,15 @@ type SpoilerTextProps = {
   mode?: 'interactive' | 'preview'
 }
 
+function isLightTheme(): boolean {
+  const root = document.documentElement
+  return (
+    root.classList.contains('theme-light') ||
+    root.classList.contains('theme-custom-light') ||
+    root.style.colorScheme === 'light'
+  )
+}
+
 /**
  * Telegram-style spoiler: shimmering particle noise until clicked.
  */
@@ -91,8 +100,12 @@ export function SpoilerText({
         }
       }
       ctx.clearRect(0, 0, w, h)
+      // Light theme: dark dots (white-on-white was invisible). Dark theme: white dots.
+      const light = isLightTheme()
       for (const p of particles) {
-        ctx.fillStyle = `rgba(255,255,255,${p.a})`
+        ctx.fillStyle = light
+          ? `rgba(15, 20, 25,${0.4 + p.a * 0.55})`
+          : `rgba(255,255,255,${p.a})`
         ctx.fillRect(p.x, p.y, p.s, p.s)
       }
     }
@@ -132,6 +145,18 @@ export function SpoilerText({
         : null
     ro?.observe(root)
 
+    // Repaint immediately when user switches light ↔ dark
+    const mo =
+      typeof MutationObserver !== 'undefined'
+        ? new MutationObserver(() => {
+            if (visible) paint()
+          })
+        : null
+    mo?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+
     paint()
     if (!reduceMotion) tick()
 
@@ -141,6 +166,7 @@ export function SpoilerText({
       window.clearTimeout(timer)
       io?.disconnect()
       ro?.disconnect()
+      mo?.disconnect()
     }
   }, [hidden, isPreview])
 

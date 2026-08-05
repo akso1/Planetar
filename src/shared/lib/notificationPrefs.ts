@@ -1,8 +1,19 @@
 import { create } from 'zustand'
+import {
+  ClientEvent,
+  EventType,
+  type MatrixClient,
+  type MatrixEvent,
+} from 'matrix-js-sdk'
 import { pushBreadcrumb } from '@/shared/lib/breadcrumbs'
+import {
+  listMutedRoomIdsFromPushRules,
+  setRoomMutedOnServer,
+} from '@/shared/lib/roomMute'
 
 export const NOTIF_ENABLED_KEY = 'matrix-macos-notifications-enabled'
 export const NOTIF_MUTED_ROOMS_KEY = 'matrix-macos-muted-rooms'
+export const NOTIF_MINIMIZE_TO_TRAY_KEY = 'matrix-macos-minimize-to-tray'
 
 function readEnabled(): boolean {
   try {
@@ -13,6 +24,26 @@ function readEnabled(): boolean {
     /* ignore */
   }
   return true
+}
+
+function readMinimizeToTray(): boolean {
+  try {
+    const v = localStorage.getItem(NOTIF_MINIMIZE_TO_TRAY_KEY)
+    if (v === '0' || v === 'false') return false
+    if (v === '1' || v === 'true') return true
+  } catch {
+    /* ignore */
+  }
+  return true
+}
+
+function persistMinimizeToTray(enabled: boolean) {
+  try {
+    localStorage.setItem(NOTIF_MINIMIZE_TO_TRAY_KEY, enabled ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+  void window.electronAPI?.setMinimizeToTray?.(enabled)
 }
 
 function readMutedIds(): string[] {
@@ -47,50 +78,134 @@ function persistMutedIds(ids: string[]) {
 
 type NotificationPrefsState = {
   enabled: boolean
+  minimizeToTray: boolean
   mutedRoomIds: string[]
   hydrate: () => void
+  /** Sync mute list from Matrix push rules; migrate local-only mutes once. */
+  syncFromClient: (client: MatrixClient) => Promise<void>
+  bindPushRulesListener: (client: MatrixClient) => () => void
   setEnabled: (enabled: boolean) => void
-  muteRoom: (roomId: string) => void
-  unmuteRoom: (roomId: string) => void
-  toggleMuteRoom: (roomId: string) => void
+  setMinimizeToTray: (enabled: boolean) => void
+  muteRoom: (roomId: string, client?: MatrixClient | null) => Promise<void>
+  unmuteRoom: (roomId: string, client?: MatrixClient | null) => Promise<void>
+  toggleMuteRoom: (roomId: string, client?: MatrixClient | null) => Promise<void>
   isMuted: (roomId: string) => boolean
   pruneMutedIds: (leftRoomIds: string[]) => void
 }
 
+let migratingLocal = false
+
 export const useNotificationPrefsStore = create<NotificationPrefsState>(
   (set, get) => ({
     enabled: true,
+    minimizeToTray: true,
     mutedRoomIds: [],
 
     hydrate: () => {
+      const minimizeToTray = readMinimizeToTray()
       set({
         enabled: readEnabled(),
+        minimizeToTray,
         mutedRoomIds: readMutedIds(),
       })
+      void window.electronAPI?.setMinimizeToTray?.(minimizeToTray)
     },
 
-    muteRoom: (roomId) => {
+    syncFromClient: async (client) => {
+      let serverIds: string[] = []
+      try {
+        if (!client.pushRules) {
+          client.pushRules = await client.getPushRules()
+        }
+        serverIds = listMutedRoomIdsFromPushRules(client)
+      } catch (err) {
+        console.error('Failed to read push rules for mute sync', err)
+        return
+      }
+
+      // One-shot migration: local-only mutes → Matrix push rules
+      const localIds = readMutedIds()
+      const missing = localIds.filter((id) => !serverIds.includes(id))
+      if (missing.length > 0 && !migratingLocal) {
+        migratingLocal = true
+        try {
+          for (const roomId of missing) {
+            try {
+              await setRoomMutedOnServer(client, roomId, true)
+            } catch (err) {
+              console.error('Failed to migrate local mute to push rules', roomId, err)
+            }
+          }
+          serverIds = listMutedRoomIdsFromPushRules(client)
+        } finally {
+          migratingLocal = false
+        }
+      }
+
+      persistMutedIds(serverIds)
+      set({ mutedRoomIds: serverIds })
+    },
+
+    bindPushRulesListener: (client) => {
+      const onAccountData = (event: MatrixEvent) => {
+        if (event.getType() !== EventType.PushRules) return
+        try {
+          const ids = listMutedRoomIdsFromPushRules(client)
+          persistMutedIds(ids)
+          set({ mutedRoomIds: ids })
+        } catch {
+          /* ignore */
+        }
+      }
+      client.on(ClientEvent.AccountData, onAccountData)
+      return () => {
+        client.removeListener(ClientEvent.AccountData, onAccountData)
+      }
+    },
+
+    muteRoom: async (roomId, client) => {
       const prev = get().mutedRoomIds
-      if (prev.includes(roomId)) return
-      const next = [...prev, roomId]
-      persistMutedIds(next)
-      set({ mutedRoomIds: next })
+      if (!prev.includes(roomId)) {
+        const next = [...prev, roomId]
+        persistMutedIds(next)
+        set({ mutedRoomIds: next })
+      }
       pushBreadcrumb('mute_room', { roomId })
+      if (!client) return
+      try {
+        await setRoomMutedOnServer(client, roomId, true)
+        const ids = listMutedRoomIdsFromPushRules(client)
+        persistMutedIds(ids)
+        set({ mutedRoomIds: ids })
+      } catch (err) {
+        console.error('Failed to mute room on server', err)
+        // Keep optimistic local mute so desktop notifications still respect it.
+      }
     },
 
-    unmuteRoom: (roomId) => {
+    unmuteRoom: async (roomId, client) => {
       const next = get().mutedRoomIds.filter((id) => id !== roomId)
-      if (next.length === get().mutedRoomIds.length) return
-      persistMutedIds(next)
-      set({ mutedRoomIds: next })
+      if (next.length !== get().mutedRoomIds.length) {
+        persistMutedIds(next)
+        set({ mutedRoomIds: next })
+      }
       pushBreadcrumb('unmute_room', { roomId })
+      if (!client) return
+      try {
+        await setRoomMutedOnServer(client, roomId, false)
+        const ids = listMutedRoomIdsFromPushRules(client)
+        persistMutedIds(ids)
+        set({ mutedRoomIds: ids })
+      } catch (err) {
+        console.error('Failed to unmute room on server', err)
+      }
     },
 
-    toggleMuteRoom: (roomId) => {
+    toggleMuteRoom: async (roomId, client) => {
       if (get().mutedRoomIds.includes(roomId)) {
-        get().unmuteRoom(roomId)
+        await get().unmuteRoom(roomId, client)
       } else {
-        get().muteRoom(roomId)
+        await get().muteRoom(roomId, client)
       }
     },
 
@@ -110,6 +225,12 @@ export const useNotificationPrefsStore = create<NotificationPrefsState>(
       persistEnabled(enabled)
       set({ enabled })
       pushBreadcrumb('notifications_toggle', { enabled })
+    },
+
+    setMinimizeToTray: (enabled) => {
+      persistMinimizeToTray(enabled)
+      set({ minimizeToTray: enabled })
+      pushBreadcrumb('minimize_to_tray', { enabled })
     },
   }),
 )

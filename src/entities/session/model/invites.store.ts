@@ -23,7 +23,8 @@ export type RoomInviteInfo = {
 
 type InvitesState = {
   invites: RoomInviteInfo[]
-  busyRoomId: string | null
+  /** Room ids currently accepting/declining (allows parallel invites). */
+  busyRoomIds: Record<string, true>
   error: string | null
   actions: {
     init: (client: MatrixClient) => void
@@ -126,7 +127,7 @@ export const useInvitesStore = create<InvitesState>((set, get) => {
 
   return {
     invites: [],
-    busyRoomId: null,
+    busyRoomIds: {},
     error: null,
     actions: {
       init: (matrixClient) => {
@@ -147,12 +148,15 @@ export const useInvitesStore = create<InvitesState>((set, get) => {
         }
         listeners.length = 0
         client = null
-        set({ invites: [], busyRoomId: null, error: null })
+        set({ invites: [], busyRoomIds: {}, error: null })
       },
       refresh,
       accept: async (roomId) => {
-        if (!client || get().busyRoomId) return
-        set({ busyRoomId: roomId, error: null })
+        if (!client || get().busyRoomIds[roomId]) return
+        set({
+          busyRoomIds: { ...get().busyRoomIds, [roomId]: true },
+          error: null,
+        })
         try {
           await client.joinRoom(roomId)
           refresh()
@@ -167,13 +171,18 @@ export const useInvitesStore = create<InvitesState>((set, get) => {
                 : 'Не удалось принять приглашение',
           })
         } finally {
-          set({ busyRoomId: null })
+          const next = { ...get().busyRoomIds }
+          delete next[roomId]
+          set({ busyRoomIds: next })
           refresh()
         }
       },
       decline: async (roomId) => {
-        if (!client || get().busyRoomId) return
-        set({ busyRoomId: roomId, error: null })
+        if (!client || get().busyRoomIds[roomId]) return
+        set({
+          busyRoomIds: { ...get().busyRoomIds, [roomId]: true },
+          error: null,
+        })
         try {
           await client.leave(roomId)
           refresh()
@@ -187,7 +196,9 @@ export const useInvitesStore = create<InvitesState>((set, get) => {
                 : 'Не удалось отклонить приглашение',
           })
         } finally {
-          set({ busyRoomId: null })
+          const next = { ...get().busyRoomIds }
+          delete next[roomId]
+          set({ busyRoomIds: next })
           refresh()
         }
       },

@@ -26,6 +26,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Sticker,
   Trash2,
   X,
@@ -39,10 +40,13 @@ import {
 } from '@/shared/lib/matrixMedia'
 import {
   applyTheme,
+  applyVibrancyEnabled,
   readStoredTheme,
+  readVibrancyEnabled,
   THEME_OPTIONS,
   type AppTheme,
 } from '@/shared/lib/theme'
+import { CustomThemeEditor } from '@/widgets/CustomThemeEditor'
 import {
   CHAT_SORT_OPTIONS,
   useChatListPrefsStore,
@@ -116,12 +120,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [isDecryptOpen, setDecryptOpen] = useState(false)
   const [protectionOpen, setProtectionOpen] = useState(false)
   const [theme, setTheme] = useState<AppTheme>(() => readStoredTheme())
+  const [vibrancyEnabled, setVibrancyEnabled] = useState(() =>
+    readVibrancyEnabled(),
+  )
+  const isDarwin = window.electronAPI?.platform === 'darwin'
   const chatSortMode = useChatListPrefsStore((s) => s.sortMode)
   const setChatSortMode = useChatListPrefsStore((s) => s.setSortMode)
   const refreshRooms = useRoomStore((s) => s.actions.refreshRooms)
   const notificationsEnabled = useNotificationPrefsStore((s) => s.enabled)
+  const minimizeToTray = useNotificationPrefsStore((s) => s.minimizeToTray)
   const mutedRoomIds = useNotificationPrefsStore((s) => s.mutedRoomIds)
   const setNotificationsEnabled = useNotificationPrefsStore((s) => s.setEnabled)
+  const setMinimizeToTray = useNotificationPrefsStore((s) => s.setMinimizeToTray)
   const [reportEmail, setReportEmail] = useState(() => readSavedReportEmail())
   const [reportComment, setReportComment] = useState('')
   const [reportStatus, setReportStatus] = useState<string | null>(null)
@@ -141,7 +151,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const avatarSize = 96
   const nameDirty = displayName.trim() !== loadedDisplayName.trim()
   const themeLabel =
-    THEME_OPTIONS.find((o) => o.id === theme)?.label ?? 'Тема'
+    theme === 'custom'
+      ? 'Своя тема'
+      : THEME_OPTIONS.find((o) => o.id === theme)?.label ?? 'Тема'
   const chatSortLabel =
     CHAT_SORT_OPTIONS.find((o) => o.id === chatSortMode)?.label ??
     'Сортировка чатов'
@@ -494,7 +506,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               role="dialog"
               aria-modal="true"
               aria-labelledby="settings-title"
-              className="relative w-full max-w-md max-h-[min(88vh,720px)] rounded-2xl border border-hairline bg-chatSidebar shadow-panel backdrop-blur-md overflow-hidden flex flex-col text-chatText"
+              className={clsx(
+                'relative w-full max-w-md max-h-[min(88vh,720px)] rounded-2xl border border-hairline shadow-panel backdrop-blur-md overflow-hidden flex flex-col text-chatText',
+                vibrancyEnabled && isDarwin
+                  ? 'bg-chatSidebar/65'
+                  : 'bg-chatSidebar',
+              )}
               initial={{ opacity: 0, y: 16, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.96 }}
@@ -714,7 +731,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             type="button"
                             onClick={() => void startDeviceVerification()}
                             disabled={!client}
-                            className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-100 text-sm font-medium py-2.5 transition-colors disabled:opacity-50"
+                            className="tg-btn-emerald w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium py-2.5"
                           >
                             <ShieldCheck className="w-4 h-4" />
                             Подтвердить через другое устройство
@@ -725,7 +742,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           type="button"
                           onClick={() => setProtectionOpen(true)}
                           disabled={!client}
-                          className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-100 text-sm font-medium py-2.5 transition-colors disabled:opacity-50"
+                          className="tg-btn-emerald w-full flex items-center justify-center gap-2 rounded-lg text-sm font-medium py-2.5"
                         >
                           <Shield className="w-4 h-4" />
                           Настроить защиту чатов
@@ -768,8 +785,47 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       className="space-y-3"
                     >
                       <p className="text-[12.5px] text-chatMuted leading-relaxed">
-                        Выберите оформление. Тема применяется сразу и сохраняется.
+                        Выберите оформление или соберите свою палитру. Тема
+                        применяется сразу и сохраняется.
                       </p>
+
+                      {isDarwin && (
+                        <div className="rounded-xl border border-hairline bg-surface-inset px-3.5 py-3 flex items-center gap-3">
+                          <div
+                            className={clsx(
+                              'w-9 h-9 rounded-xl border flex items-center justify-center shrink-0',
+                              vibrancyEnabled
+                                ? 'bg-accent/25 border-accent/40 text-ink'
+                                : 'bg-surface-inset border-hairline text-ink-muted',
+                            )}
+                          >
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13.5px] font-semibold text-ink">
+                              Размытие фона (macOS Vibrancy)
+                            </div>
+                            <div className="text-[12px] text-ink-muted mt-0.5 leading-snug">
+                              Прозрачный фон с эффектом акрилового стекла
+                            </div>
+                          </div>
+                          <SettingsSwitch
+                            checked={vibrancyEnabled}
+                            onChange={(next) => {
+                              setVibrancyEnabled(next)
+                              applyVibrancyEnabled(next)
+                            }}
+                            label="Размытие фона (macOS Vibrancy)"
+                          />
+                        </div>
+                      )}
+
+                      <CustomThemeEditor
+                        active={theme === 'custom'}
+                        onActivate={() => onThemePick('custom')}
+                        onApplied={() => setTheme('custom')}
+                      />
+
                       <div className="grid grid-cols-1 gap-2.5">
                         {THEME_OPTIONS.map((opt) => {
                           const active = theme === opt.id
@@ -927,6 +983,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             if (next) showNotificationsSelfTest()
                           }}
                           label="Показывать уведомления"
+                        />
+                      </div>
+
+                      <div className="rounded-xl border border-hairline bg-surface-inset px-3.5 py-3 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl border border-hairline bg-surface-inset flex items-center justify-center shrink-0 text-ink-muted">
+                          <Bell className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13.5px] font-semibold text-ink">
+                            Сворачивать в меню
+                          </div>
+                          <div className="text-[12px] text-ink-muted mt-0.5 leading-snug">
+                            {minimizeToTray
+                              ? 'Закрытие окна оставляет приложение в menu bar — уведомления продолжают приходить'
+                              : 'Закрытие окна завершает приложение'}
+                          </div>
+                        </div>
+                        <SettingsSwitch
+                          checked={minimizeToTray}
+                          onChange={setMinimizeToTray}
+                          label="Сворачивать в меню"
                         />
                       </div>
 
@@ -1149,10 +1226,12 @@ function SettingsSwitch({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   label: string
+  disabled?: boolean
 }) {
   return (
     <button
@@ -1160,10 +1239,15 @@ function SettingsSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled) return
+        onChange(!checked)
+      }}
       className={clsx(
-        'relative inline-flex h-[26px] w-[46px] shrink-0 items-center rounded-full p-[3px] transition-[background,box-shadow] duration-200 ease-out',
+        'relative inline-flex h-[26px] w-[46px] shrink-0 items-center rounded-full p-[3px] transition-[background,box-shadow,opacity] duration-200 ease-out',
         checked ? 'justify-end' : 'justify-start',
+        disabled && 'opacity-40 cursor-not-allowed',
       )}
       style={{
         background: checked

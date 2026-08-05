@@ -7,13 +7,68 @@
       if (window.process && !window.process.listenerCount) {
         window.process.listenerCount = () => 0;
       }
+      // Early theme class to reduce FOUC before React/initTheme
+      (function () {
+        try {
+          var t =
+            localStorage.getItem('app-theme') ||
+            localStorage.getItem('matrix-macos-theme') ||
+            'dark';
+          if (t === 'blue') t = 'telegram';
+          document.documentElement.classList.add('theme-' + t);
+          if (t === 'dark') document.documentElement.classList.add('dark');
+          // Early vibrancy class (macOS glass) — matches planetar-vibrancy-enabled
+          try {
+            var vib = localStorage.getItem('planetar-vibrancy-enabled');
+            if (vib === '1' || vib === 'true') {
+              document.documentElement.classList.add('vibrancy-enabled');
+            }
+          } catch (ve) {}
+          if (t === 'custom') {
+            var raw = localStorage.getItem('planetar-theme-custom-palette');
+            if (!raw) return;
+            var p = JSON.parse(raw);
+            if (p && p.bg) {
+              document.documentElement.style.setProperty('--color-bg', p.bg);
+              if (p.text)
+                document.documentElement.style.setProperty('--color-text', p.text);
+              // Rough luminance for light chrome class
+              var hex = String(p.bg).replace('#', '');
+              if (hex.length === 3)
+                hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+              if (hex.length === 6) {
+                var r = parseInt(hex.slice(0, 2), 16) / 255;
+                var g = parseInt(hex.slice(2, 4), 16) / 255;
+                var b = parseInt(hex.slice(4, 6), 16) / 255;
+                var lin = function (c) {
+                  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+                };
+                var L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+                if (L > 0.55)
+                  document.documentElement.classList.add('theme-custom-light');
+              }
+            }
+          }
+        } catch (e) {}
+      })();
     </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>matrix-macos-client</title>
+    <title>Planetar</title>
+    <style>
+      /* Boot bg — avoid desktop flash with transparent:true windows */
+      html:not(.vibrancy-enabled) body,
+      html:not(.vibrancy-enabled) #root {
+        background: var(--color-bg, #09090b);
+      }
+      html.vibrancy-enabled body,
+      html.vibrancy-enabled #root {
+        background: transparent !important;
+      }
+    </style>
   </head>
-  <body class="bg-gray-900 text-gray-200" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--color-text, #f4f4f5);">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

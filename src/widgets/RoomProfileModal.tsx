@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AtSign,
+  Ban,
   Copy,
   CornerDownRight,
   ExternalLink,
@@ -12,11 +13,16 @@ import {
   Link2,
   MessageSquare,
   Play,
+  Shield,
+  Unlock,
+  UserX,
   Users,
   X,
 } from 'lucide-react'
 import {
   EventTimeline,
+  RoomMemberEvent,
+  RoomStateEvent,
   type MatrixClient,
   type MatrixEvent,
   type Room,
@@ -27,7 +33,25 @@ import { format } from 'date-fns'
 import { downloadMessageAttachment } from '@/shared/lib/matrixMedia'
 import { isGifMessageContent } from '@/shared/lib/savedGifsStore'
 import { openOrCreateDirectChat } from '@/shared/lib/openDm'
+import {
+  canModerateMember,
+  canUnbanMembers,
+  availablePowerPresets,
+  formatModerationError,
+  getUserPowerLevel,
+  memberRoleInfo,
+  setMemberPowerLevel,
+} from '@/shared/lib/roomModeration'
 import { AppContextMenu } from '@/shared/ui/AppContextMenu'
+import {
+  AdminConfirmDialog,
+  type AdminConfirmAction,
+  type AdminConfirmTarget,
+} from '@/shared/ui/AdminConfirmDialog'
+import {
+  PowerRoleDialog,
+  type PowerRoleTarget,
+} from './PowerRoleDialog'
 import { MxcAvatar } from '@/shared/ui/MxcAvatar'
 import { useRoomStore } from '@/entities/session/model/room.store'
 import { ImageViewer, type ViewerImage } from './ImageViewer'
@@ -43,6 +67,8 @@ type RoomProfileModalProps = {
   client: MatrixClient
   onClose: () => void
   onMention: (mention: MentionRequest) => void
+  /** Scroll/highlight this member when the profile opens (e.g. from @mention card). */
+  focusUserId?: string | null
 }
 
 type ProfileTab = 'members' | 'media' | 'files' | 'links'
@@ -337,14 +363,14 @@ function MediaThumb({
   if (error && kind === 'video') {
     return (
       <div className="w-full h-full flex items-center justify-center bg-black/30">
-        <Film className="w-6 h-6 text-white/45" />
+        <Film className="w-6 h-6 text-ink-faint" />
       </div>
     )
   }
 
   if (!objectUrl) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-black/20 text-[10px] text-white/35">
+      <div className="w-full h-full flex items-center justify-center bg-black/20 text-[10px] text-ink-faint">
         …
       </div>
     )
@@ -375,6 +401,7 @@ export function RoomProfileModal({
   client,
   onClose,
   onMention,
+  focusUserId = null,
 }: RoomProfileModalProps) {
   const setActiveRoomId = useRoomStore((s) => s.actions.setActiveRoomId)
   const openRoomAtEvent = useRoomStore((s) => s.actions.openRoomAtEvent)
@@ -395,15 +422,58 @@ export function RoomProfileModal({
     index: number
   } | null>(null)
   const [tick, setTick] = useState(0)
+  const [memberTick, setMemberTick] = useState(0)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyEvents, setHistoryEvents] = useState<MatrixEvent[]>([])
+  const [adminConfirm, setAdminConfirm] = useState<{
+    action: AdminConfirmAction
+    target: AdminConfirmTarget
+  } | null>(null)
+  const [adminBusy, setAdminBusy] = useState(false)
+  const [adminError, setAdminError] = useState<string | null>(null)
+  const [powerTarget, setPowerTarget] = useState<PowerRoleTarget | null>(null)
+  const [powerBusy, setPowerBusy] = useState(false)
+  const [powerError, setPowerError] = useState<string | null>(null)
+  const [highlightUserId, setHighlightUserId] = useState<string | null>(null)
+  const focusRowRef = useRef<HTMLDivElement | null>(null)
 
   const members = useMemo(() => {
     const list = room.getJoinedMembers()
+    return [...list].sort((a, b) => {
+      const pa = a.powerLevel ?? 0
+      const pb = b.powerLevel ?? 0
+      if (pb !== pa) return pb - pa
+      return memberDisplayName(a).localeCompare(memberDisplayName(b), 'ru')
+    })
+    // memberTick: refresh after kick/ban/membership events
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, isOpen, memberTick])
+
+  const bannedMembers = useMemo(() => {
+    const list = room.getMembersWithMembership('ban')
     return [...list].sort((a, b) =>
       memberDisplayName(a).localeCompare(memberDisplayName(b), 'ru'),
     )
-  }, [room, isOpen])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, isOpen, memberTick])
+
+  const myId = client.getUserId()
+  const canUnban = canUnbanMembers(room, myId)
+
+  const focusMember = useMemo(() => {
+    if (!focusUserId) return null
+    return (
+      room.getMember(focusUserId) ||
+      members.find((m) => m.userId === focusUserId) ||
+      null
+    )
+  }, [focusUserId, room, members, memberTick])
+
+  const focusOutsideJoined = Boolean(
+    focusUserId &&
+      !members.some((m) => m.userId === focusUserId) &&
+      !bannedMembers.some((m) => m.userId === focusUserId),
+  )
 
   const shared = useMemo(() => {
     const byId = new Map<string, MatrixEvent>()
@@ -423,7 +493,6 @@ export function RoomProfileModal({
 
   const roomAvatarMxc = room.getMxcAvatarUrl?.() ?? null
   const roomName = room.name || room.roomId
-  const myId = client.getUserId()
 
   useEffect(() => {
     if (!isOpen) {
@@ -432,6 +501,13 @@ export function RoomProfileModal({
       setViewer(null)
       setTab('members')
       setHistoryLoading(false)
+      setAdminConfirm(null)
+      setAdminError(null)
+      setAdminBusy(false)
+      setPowerTarget(null)
+      setPowerError(null)
+      setPowerBusy(false)
+      setHighlightUserId(null)
       // Keep historyEvents in cache — don't wipe (re-decrypt spam on reopen)
       return
     }
@@ -441,6 +517,36 @@ export function RoomProfileModal({
       setHistoryEvents(cached)
     }
   }, [isOpen, room.roomId])
+
+  // Focus a member when opened from an @mention card
+  useEffect(() => {
+    if (!isOpen || !focusUserId) return
+    setTab('members')
+    setHighlightUserId(focusUserId)
+    const t = window.setTimeout(() => {
+      focusRowRef.current?.scrollIntoView({
+        block: 'center',
+        behavior: 'smooth',
+      })
+    }, 80)
+    const clear = window.setTimeout(() => setHighlightUserId(null), 2800)
+    return () => {
+      window.clearTimeout(t)
+      window.clearTimeout(clear)
+    }
+  }, [isOpen, focusUserId, room.roomId, members.length])
+
+  // Refresh member lists when someone joins/leaves/is banned / power changes
+  useEffect(() => {
+    if (!isOpen) return
+    const bump = () => setMemberTick((n) => n + 1)
+    room.on(RoomStateEvent.Members, bump)
+    room.on(RoomMemberEvent.PowerLevel, bump)
+    return () => {
+      room.removeListener(RoomStateEvent.Members, bump)
+      room.removeListener(RoomMemberEvent.PowerLevel, bump)
+    }
+  }, [isOpen, room])
 
   // Load shared media via /messages — does NOT mutate the live chat timeline.
   useEffect(() => {
@@ -539,6 +645,79 @@ export function RoomProfileModal({
       alert('Не удалось открыть личный чат')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const openAdminConfirm = (
+    action: AdminConfirmAction,
+    member: RoomMember,
+  ) => {
+    setAdminError(null)
+    setAdminConfirm({
+      action,
+      target: {
+        userId: member.userId,
+        displayName: memberDisplayName(member),
+        avatarMxc: member.getMxcAvatarUrl(),
+      },
+    })
+  }
+
+  const runAdminAction = async (reason: string) => {
+    if (!adminConfirm) return
+    const { action, target } = adminConfirm
+    setAdminBusy(true)
+    setAdminError(null)
+    try {
+      if (action === 'kick') {
+        await client.kick(room.roomId, target.userId, reason || undefined)
+      } else if (action === 'ban') {
+        await client.ban(room.roomId, target.userId, reason || undefined)
+      } else {
+        await client.unban(room.roomId, target.userId)
+      }
+      setAdminConfirm(null)
+      setMemberTick((n) => n + 1)
+    } catch (err) {
+      console.error('Room moderation failed', err)
+      setAdminError(
+        formatModerationError(
+          err,
+          action === 'kick'
+            ? 'Не удалось исключить'
+            : action === 'ban'
+              ? 'Не удалось заблокировать'
+              : 'Не удалось разблокировать',
+        ),
+      )
+    } finally {
+      setAdminBusy(false)
+    }
+  }
+
+  const openPowerRole = (member: RoomMember) => {
+    setPowerError(null)
+    setPowerTarget({
+      userId: member.userId,
+      displayName: memberDisplayName(member),
+      avatarMxc: member.getMxcAvatarUrl(),
+      currentLevel: getUserPowerLevel(room, member.userId),
+    })
+  }
+
+  const runPowerRole = async (level: number) => {
+    if (!powerTarget) return
+    setPowerBusy(true)
+    setPowerError(null)
+    try {
+      await setMemberPowerLevel(client, room, powerTarget.userId, level)
+      setPowerTarget(null)
+      setMemberTick((n) => n + 1)
+    } catch (err) {
+      console.error('Failed to set power level', err)
+      setPowerError(formatModerationError(err, 'Не удалось сменить роль'))
+    } finally {
+      setPowerBusy(false)
     }
   }
 
@@ -671,64 +850,182 @@ export function RoomProfileModal({
 
             <div className="tg-profile-scroll flex-1 overflow-y-auto px-2 py-2">
               {tab === 'members' && (
-                <ul className="space-y-0.5">
-                  {members.map((member) => {
-                    const name = memberDisplayName(member)
-                    const isMe = member.userId === myId
-                    return (
-                      <li key={member.userId}>
-                        <div
-                          className="tg-profile-member group flex items-center gap-3 rounded-xl px-3 py-2 transition-colors cursor-pointer"
-                          onClick={() => {
-                            if (!isMe) mention(member)
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setMemberMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              member,
-                            })
-                          }}
-                        >
-                          <MemberAvatar member={member} client={client} />
-                          <div className="min-w-0 flex-1">
-                            <div className="tg-title text-[13.5px] font-medium truncate">
-                              {name}
-                              {isMe && (
-                                <span className="tg-muted font-normal">
-                                  {' '}
-                                  (вы)
-                                </span>
-                              )}
-                            </div>
-                            <div className="tg-muted text-[11.5px] truncate">
-                              {member.userId}
-                            </div>
-                          </div>
-                          {!isMe && (
-                            <button
-                              type="button"
-                              title="Упомянуть в чате"
-                              aria-label="Упомянуть в чате"
-                              className={clsx(
-                                'tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full shrink-0',
-                                'opacity-0 group-hover:opacity-100 transition-all',
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                mention(member)
-                              }}
-                            >
-                              <AtSign className="w-4 h-4" />
-                            </button>
-                          )}
+                <>
+                  {focusOutsideJoined && focusUserId && (
+                    <div
+                      ref={
+                        highlightUserId === focusUserId ? focusRowRef : undefined
+                      }
+                      className={clsx(
+                        'tg-profile-member tg-profile-member--focus mb-2 flex items-center gap-3 rounded-xl px-3 py-2',
+                      )}
+                    >
+                      <MxcAvatar
+                        client={client}
+                        mxcUrl={focusMember?.getMxcAvatarUrl?.() ?? null}
+                        label={
+                          focusMember
+                            ? memberDisplayName(focusMember)
+                            : focusUserId
+                        }
+                        size={36}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="tg-title text-[13.5px] font-medium truncate">
+                          {focusMember
+                            ? memberDisplayName(focusMember)
+                            : focusUserId.split(':')[0]?.replace(/^@/, '') ||
+                              focusUserId}
                         </div>
-                      </li>
-                    )
-                  })}
-                </ul>
+                        <div className="tg-muted text-[11.5px] truncate">
+                          {focusUserId}
+                        </div>
+                        <div className="tg-muted text-[11px] mt-0.5">
+                          Не состоит в комнате сейчас
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        title="Упомянуть в чате"
+                        aria-label="Упомянуть в чате"
+                        className="tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full shrink-0"
+                        onClick={() => {
+                          onMention({
+                            userId: focusUserId,
+                            displayName:
+                              focusMember
+                                ? memberDisplayName(focusMember)
+                                : focusUserId.split(':')[0]?.replace(/^@/, '') ||
+                                  focusUserId,
+                          })
+                          onClose()
+                        }}
+                      >
+                        <AtSign className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  <ul className="space-y-0.5">
+                    {members.map((member) => {
+                      const name = memberDisplayName(member)
+                      const isMe = member.userId === myId
+                      const role = memberRoleInfo(room, member.userId)
+                      const isFocus = highlightUserId === member.userId
+                      return (
+                        <li key={member.userId}>
+                          <div
+                            ref={isFocus ? focusRowRef : undefined}
+                            className={clsx(
+                              'tg-profile-member group flex items-center gap-3 rounded-xl px-3 py-2 transition-colors cursor-pointer',
+                              isFocus && 'tg-profile-member--focus',
+                            )}
+                            onClick={() => {
+                              if (!isMe) mention(member)
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setMemberMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                member,
+                              })
+                            }}
+                          >
+                            <MemberAvatar member={member} client={client} />
+                            <div className="min-w-0 flex-1">
+                              <div className="tg-title text-[13.5px] font-medium truncate">
+                                {name}
+                                {isMe && (
+                                  <span className="tg-muted font-normal">
+                                    {' '}
+                                    (вы)
+                                  </span>
+                                )}
+                                {role.label && (
+                                  <span
+                                    className={clsx(
+                                      'tg-profile-role',
+                                      role.role === 'owner' &&
+                                        'tg-profile-role--owner',
+                                      role.role === 'admin' &&
+                                        'tg-profile-role--admin',
+                                      role.role === 'mod' &&
+                                        'tg-profile-role--mod',
+                                    )}
+                                  >
+                                    {role.label}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="tg-muted text-[11.5px] truncate">
+                                {member.userId}
+                              </div>
+                            </div>
+                            {!isMe && (
+                              <button
+                                type="button"
+                                title="Упомянуть в чате"
+                                aria-label="Упомянуть в чате"
+                                className={clsx(
+                                  'tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full shrink-0',
+                                  'opacity-0 group-hover:opacity-100 transition-all',
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  mention(member)
+                                }}
+                              >
+                                <AtSign className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+
+                  {bannedMembers.length > 0 && (
+                    <div className="mt-3">
+                      <div className="tg-profile-section-label">
+                        Заблокированные · {bannedMembers.length}
+                      </div>
+                      <ul className="space-y-0.5">
+                        {bannedMembers.map((member) => {
+                          const name = memberDisplayName(member)
+                          return (
+                            <li key={`ban-${member.userId}`}>
+                              <div className="tg-profile-member group flex items-center gap-3 rounded-xl px-3 py-2 transition-colors">
+                                <MemberAvatar member={member} client={client} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="tg-title text-[13.5px] font-medium truncate">
+                                    {name}
+                                  </div>
+                                  <div className="tg-muted text-[11.5px] truncate">
+                                    {member.userId}
+                                  </div>
+                                </div>
+                                {canUnban && (
+                                  <button
+                                    type="button"
+                                    title="Разблокировать"
+                                    aria-label="Разблокировать"
+                                    className="tg-icon-btn w-8 h-8 flex items-center justify-center rounded-full shrink-0 opacity-70 group-hover:opacity-100"
+                                    onClick={() =>
+                                      openAdminConfirm('unban', member)
+                                    }
+                                  >
+                                    <Unlock className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </>
               )}
 
               {tab === 'media' && (
@@ -927,6 +1224,68 @@ export function RoomProfileModal({
                   disabled: memberMenu.member.userId === myId,
                   onSelect: () => void openDm(memberMenu.member.userId),
                 },
+                ...(availablePowerPresets(
+                  room,
+                  myId,
+                  memberMenu.member.userId,
+                ).length
+                  ? [
+                      {
+                        id: 'role',
+                        label: 'Назначить роль…',
+                        icon: <Shield className="w-4 h-4" />,
+                        onSelect: () => openPowerRole(memberMenu.member),
+                      },
+                    ]
+                  : []),
+                ...(canModerateMember(
+                  room,
+                  myId,
+                  memberMenu.member.userId,
+                  'kick',
+                ) ||
+                canModerateMember(
+                  room,
+                  myId,
+                  memberMenu.member.userId,
+                  'ban',
+                )
+                  ? [{ id: 'mod-sep', separator: true as const }]
+                  : []),
+                ...(canModerateMember(
+                  room,
+                  myId,
+                  memberMenu.member.userId,
+                  'kick',
+                )
+                  ? [
+                      {
+                        id: 'kick',
+                        label: 'Исключить из чата',
+                        icon: <UserX className="w-4 h-4" />,
+                        danger: true,
+                        onSelect: () =>
+                          openAdminConfirm('kick', memberMenu.member),
+                      },
+                    ]
+                  : []),
+                ...(canModerateMember(
+                  room,
+                  myId,
+                  memberMenu.member.userId,
+                  'ban',
+                )
+                  ? [
+                      {
+                        id: 'ban',
+                        label: 'Заблокировать',
+                        icon: <Ban className="w-4 h-4" />,
+                        danger: true,
+                        onSelect: () =>
+                          openAdminConfirm('ban', memberMenu.member),
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -946,6 +1305,42 @@ export function RoomProfileModal({
               ]}
             />
           )}
+
+          <AdminConfirmDialog
+            open={!!adminConfirm}
+            action={adminConfirm?.action || 'kick'}
+            target={adminConfirm?.target || null}
+            client={client}
+            roomName={roomName}
+            busy={adminBusy}
+            error={adminError}
+            onClose={() => {
+              if (adminBusy) return
+              setAdminConfirm(null)
+              setAdminError(null)
+            }}
+            onConfirm={(reason) => void runAdminAction(reason)}
+          />
+
+          <PowerRoleDialog
+            open={!!powerTarget}
+            target={powerTarget}
+            presets={
+              powerTarget
+                ? availablePowerPresets(room, myId, powerTarget.userId)
+                : []
+            }
+            client={client}
+            roomName={roomName}
+            busy={powerBusy}
+            error={powerError}
+            onClose={() => {
+              if (powerBusy) return
+              setPowerTarget(null)
+              setPowerError(null)
+            }}
+            onConfirm={(level) => void runPowerRole(level)}
+          />
 
           {viewer && (
             <ImageViewer

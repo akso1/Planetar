@@ -312,7 +312,7 @@ export function DeviceVerificationModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.97 }}
           >
-            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/5">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-hairline">
               <h2
                 id="device-verif-title"
                 className="text-[16px] font-semibold text-chatText"
@@ -322,7 +322,7 @@ export function DeviceVerificationModal({
               <button
                 type="button"
                 onClick={() => void handleClose()}
-                className="p-1.5 rounded-lg text-white/45 hover:text-white hover:bg-white/10"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-inset"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -334,7 +334,7 @@ export function DeviceVerificationModal({
                   <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center">
                     <ShieldCheck className="w-6 h-6 text-emerald-400" />
                   </div>
-                  <p className="text-[13.5px] text-white/70 leading-relaxed">
+                  <p className="text-[13.5px] text-ink-muted leading-relaxed">
                     Это устройство подтверждено через другое. Ключи
                     cross-signing синхронизированы.
                   </p>
@@ -353,7 +353,7 @@ export function DeviceVerificationModal({
                 <>
                   {showAccept && (
                     <>
-                      <p className="text-[13.5px] text-white/70 leading-relaxed">
+                      <p className="text-[13.5px] text-ink-muted leading-relaxed">
                         Другое ваше устройство хочет подтвердить эту сессию.
                         Примите запрос, затем сравните эмодзи.
                       </p>
@@ -362,7 +362,7 @@ export function DeviceVerificationModal({
                           type="button"
                           disabled={busy}
                           onClick={() => void handleClose()}
-                          className="flex-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-chatText text-sm font-medium py-2.5 disabled:opacity-50"
+                          className="flex-1 rounded-lg bg-surface-inset hover:bg-surface-inset border border-hairline text-chatText text-sm font-medium py-2.5 disabled:opacity-50"
                         >
                           Отклонить
                         </button>
@@ -380,11 +380,11 @@ export function DeviceVerificationModal({
 
                   {showWaiting && (
                     <>
-                      <p className="text-[13.5px] text-white/70 leading-relaxed">
+                      <p className="text-[13.5px] text-ink-muted leading-relaxed">
                         Примите запрос на другом устройстве (например, в
                         Element), затем сравните эмодзи здесь и там.
                       </p>
-                      <div className="flex items-center gap-2 text-[13px] text-white/45">
+                      <div className="flex items-center gap-2 text-[13px] text-ink-faint">
                         <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                         Ожидаем подтверждения на другом устройстве…
                       </div>
@@ -393,7 +393,7 @@ export function DeviceVerificationModal({
 
                   {sas && (
                     <>
-                      <p className="text-[13.5px] text-white/70 leading-relaxed">
+                      <p className="text-[13.5px] text-ink-muted leading-relaxed">
                         Сверьте эмодзи с другим устройством. Они должны
                         полностью совпадать и идти в том же порядке.
                       </p>
@@ -401,20 +401,20 @@ export function DeviceVerificationModal({
                         {(sas.sas.emoji ?? []).map(([emoji, name], i) => (
                           <div
                             key={`${name}-${i}`}
-                            className="rounded-xl bg-black/30 border border-white/8 px-1.5 py-2 flex flex-col items-center gap-1"
+                            className="rounded-xl bg-black/30 border border-hairline px-1.5 py-2 flex flex-col items-center gap-1"
                             title={name}
                           >
                             <span className="text-[22px] leading-none">
                               {emoji}
                             </span>
-                            <span className="text-[9px] text-white/40 truncate w-full text-center">
+                            <span className="text-[9px] text-ink-faint truncate w-full text-center">
                               {name}
                             </span>
                           </div>
                         ))}
                       </div>
                       {sas.sas.decimal && (
-                        <div className="text-center text-[13px] tabular-nums text-white/55 tracking-wider">
+                        <div className="text-center text-[13px] tabular-nums text-ink-muted tracking-wider">
                           {sas.sas.decimal.join(' · ')}
                         </div>
                       )}
@@ -433,7 +433,7 @@ export function DeviceVerificationModal({
                           onClick={() => void confirmSas()}
                           className={clsx(
                             'flex-1 rounded-lg text-sm font-medium py-2.5 disabled:opacity-50',
-                            'bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-100',
+                            'tg-btn-emerald',
                           )}
                         >
                           {busy ? '…' : 'Совпадают'}
@@ -452,7 +452,7 @@ export function DeviceVerificationModal({
                     <button
                       type="button"
                       onClick={() => void handleClose()}
-                      className="w-full rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 text-[12.5px] font-medium py-2"
+                      className="w-full rounded-lg bg-surface-inset hover:bg-surface-inset border border-hairline text-ink-muted text-[12.5px] font-medium py-2"
                     >
                       Отмена
                     </button>

@@ -5,6 +5,18 @@ export type TimelineJumpRow = {
   item:
     | { kind: 'album'; events: MatrixEvent[]; imageEvents: MatrixEvent[] }
     | { kind: 'single'; event: MatrixEvent }
+    | {
+        kind: 'call'
+        summary: {
+          callId: string
+          firstEvent: MatrixEvent
+          anchorEvent: MatrixEvent
+          invite?: MatrixEvent | null
+          answer?: MatrixEvent | null
+          hangup?: MatrixEvent | null
+          reject?: MatrixEvent | null
+        }
+      }
   dayChanged: boolean
   showUnreadSep: boolean
   isContinuation: boolean
@@ -29,6 +41,27 @@ export function findTimelineRowIndex(
         row.item.imageEvents.some((e) => e.getId() === eventId)
       )
     }
+    if (row.item.kind === 'call') {
+      const s = row.item.summary as {
+        callId: string
+        firstEvent: MatrixEvent
+        anchorEvent: MatrixEvent
+        invite?: MatrixEvent | null
+        answer?: MatrixEvent | null
+        hangup?: MatrixEvent | null
+        reject?: MatrixEvent | null
+      }
+      const ids = [
+        s.firstEvent?.getId(),
+        s.anchorEvent?.getId(),
+        s.invite?.getId(),
+        s.answer?.getId(),
+        s.hangup?.getId(),
+        s.reject?.getId(),
+        row.firstEvent.getId(),
+      ]
+      return ids.some((id) => id === eventId)
+    }
     return row.item.event.getId() === eventId
   })
 }
@@ -50,6 +83,10 @@ export function estimateTimelineRowSize(row: TimelineJumpRow): number {
     // Reserved media blocks — over-estimate
     h += n <= 1 ? 300 : n === 2 ? 220 : 320
     return h
+  }
+
+  if (row.item.kind === 'call') {
+    return h + 44
   }
 
   const event = row.item.event

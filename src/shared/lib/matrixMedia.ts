@@ -21,7 +21,66 @@ type ObjectUrlCacheEntry = {
 const objectUrlCache = new Map<string, ObjectUrlCacheEntry>()
 const objectUrlInflight = new Map<string, Promise<string>>()
 
+/** In-memory blobs keyed by synthetic `mxc://planetar.local/…` for optimistic send. */
+const localMediaBlobs = new Map<string, Blob>()
+
 const OBJECT_URL_REVOKE_DELAY_MS = 60_000
+
+const LOCAL_MEDIA_MXC_PREFIX = 'mxc://planetar.local/'
+
+/** Register a blob for optimistic sticker/GIF paint before HS upload finishes. */
+export function registerLocalMediaBlob(blob: Blob): string {
+  const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  const mxc = `${LOCAL_MEDIA_MXC_PREFIX}${id}`
+  localMediaBlobs.set(mxc, blob)
+  return mxc
+}
+
+export function unregisterLocalMediaBlob(mxc: string): void {
+  localMediaBlobs.delete(mxc)
+}
+
+export function getLocalMediaBlob(mxc: string): Blob | null {
+  return localMediaBlobs.get(mxc) ?? null
+}
+
+export function isLocalMediaMxc(mxc: string): boolean {
+  return mxc.startsWith(LOCAL_MEDIA_MXC_PREFIX)
+}
+
+/**
+ * Seed the object-URL cache so timeline media can paint without re-downloading.
+ * Does not bump refs — pair with normal acquire/release from the UI.
+ */
+export function primeCachedObjectUrl(cacheKey: string, blob: Blob): void {
+  const existing = objectUrlCache.get(cacheKey)
+  if (existing) {
+    if (existing.revokeTimer) {
+      clearTimeout(existing.revokeTimer)
+      existing.revokeTimer = null
+    }
+    return
+  }
+  objectUrlCache.set(cacheKey, {
+    url: URL.createObjectURL(blob),
+    refs: 0,
+    revokeTimer: null,
+  })
+}
+
+/** Prime preview + full keys used by MediaImage / viewers. */
+export function primeAttachmentObjectUrls(
+  mxcUrl: string,
+  blob: Blob,
+  mime: string,
+): void {
+  const keys = [
+    `preview:${mxcUrl}|${mime}`,
+    `full:${mxcUrl}|${mime}`,
+    `viewer:${mxcUrl}|${mime}`,
+  ]
+  for (const key of keys) primeCachedObjectUrl(key, blob)
+}
 
 /** Cap parallel media downloads so visible images are not starved. */
 const MAX_MEDIA_DOWNLOADS = 3
@@ -110,6 +169,9 @@ export async function downloadMatrixMedia(
   encryptedFile?: EncryptedAttachmentInfo | null,
   fallbackMime = 'application/octet-stream',
 ): Promise<Blob> {
+  const local = getLocalMediaBlob(mxcUrl)
+  if (local) return local
+
   const httpUrl = client.mxcUrlToHttp(
     mxcUrl,
     undefined,
@@ -255,6 +317,11 @@ export async function downloadMessageAttachmentPreview(
 ): Promise<Blob> {
   const preview = timelinePreviewContent(content)
   const encrypted = preview.file
+
+  const previewMxc = encrypted?.url || preview.url || content.url
+  if (previewMxc && getLocalMediaBlob(previewMxc)) {
+    return getLocalMediaBlob(previewMxc)!
+  }
 
   if (encrypted?.key) {
     return downloadMessageAttachment(client, preview, fallbackMime)

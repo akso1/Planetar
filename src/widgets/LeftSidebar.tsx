@@ -13,6 +13,7 @@ import { useSessionStore } from '@/entities/session/model/session'
 import { AppContextMenu } from '@/shared/ui/AppContextMenu'
 import { SettingsModal } from './SettingsModal'
 import { InvitesBell } from './InvitesBell'
+import { SyncStatusNav } from './SyncStatusBar'
 
 const iconStyle = 'w-[18px] h-[18px] tg-nav-icon transition-colors'
 
@@ -118,6 +119,7 @@ export function LeftSidebar() {
         </div>
 
         <div className="mt-auto flex flex-col gap-2">
+          <SyncStatusNav />
           <InvitesBell />
           <button
             type="button"
