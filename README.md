@@ -1,6 +1,6 @@
-# matrix-macos-client
+# Planetar
 
-Нативно-ощутимый настольный клиент [Matrix](https://matrix.org/) для macOS, построенный на
+Нативно-ощутимый настольный клиент [Matrix](https://matrix.org/) для macOS и Windows, построенный на
 Electron + React 19 + TypeScript. Шифрование — через Rust-crypto (`matrix-js-sdk` +
 `@matrix-org/matrix-sdk-crypto-wasm`), хранение — IndexedDB.
 
@@ -40,8 +40,15 @@ npm run dev      # Vite + Electron с HMR
 ## Сборка
 
 ```bash
-npm run build    # vite build + electron-builder
-npm run preview  # предпросмотр собранной web-сборки без Electron
+npm run build:dmg   # macOS arm64 DMG
+npm run build:win   # Windows x64 portable
+npm run preview     # предпросмотр web-сборки без Electron
+```
+
+На macOS для локальных баннеров уведомлений после сборки:
+
+```bash
+npm run sign:mac-notifications
 ```
 
 ## Линт
