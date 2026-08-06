@@ -211,11 +211,26 @@ export async function checkForAppUpdates(): Promise<AppUpdateCheckResult> {
 }
 
 export async function openUpdatePage(url: string): Promise<boolean> {
+  const href = typeof url === 'string' ? url.trim() : ''
+  if (!href.startsWith('https://')) {
+    console.warn('[appUpdate] refused non-https update URL', url)
+    return false
+  }
+
   const api = window.electronAPI
   if (api?.openExternal) {
-    const res = await api.openExternal(url)
-    return !res || res.ok !== false
+    try {
+      const res = await api.openExternal(href)
+      if (res && res.ok === false) {
+        console.warn('[appUpdate] openExternal failed', res.reason, href)
+        return false
+      }
+      return true
+    } catch (err) {
+      console.warn('[appUpdate] openExternal threw', err)
+      return false
+    }
   }
-  window.open(url, '_blank', 'noopener,noreferrer')
+  window.open(href, '_blank', 'noopener,noreferrer')
   return true
 }

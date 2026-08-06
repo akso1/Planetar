@@ -653,16 +653,11 @@ function pickReleaseDownloadUrl(
 
   if (process.platform === 'darwin') {
     const dmg = list.filter((a) => /\.dmg$/i.test(a.name))
-    if (process.arch === 'arm64') {
-      return (
-        dmg.find((a) => /arm64/i.test(a.name)) ??
-        dmg[0]?.browser_download_url
-      )
-    }
-    return (
-      dmg.find((a) => /x64|amd64|intel/i.test(a.name)) ??
-      dmg[0]?.browser_download_url
-    )
+    const picked =
+      process.arch === 'arm64'
+        ? (dmg.find((a) => /arm64/i.test(a.name)) ?? dmg[0])
+        : (dmg.find((a) => /x64|amd64|intel/i.test(a.name)) ?? dmg[0])
+    return picked?.browser_download_url
   }
 
   if (process.platform === 'win32') {

@@ -81,6 +81,7 @@ import {
   type AppUpdateCheckResult,
   GITHUB_RELEASES_URL,
 } from '@/shared/lib/appUpdate'
+import { showAppToast } from '@/shared/lib/appToast'
 
 type SettingsModalProps = {
   isOpen: boolean
@@ -399,6 +400,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       })
     } finally {
       setUpdateBusy(false)
+    }
+  }
+
+  const handleOpenUpdateLink = async (url: string | undefined) => {
+    const href = (url || GITHUB_RELEASES_URL).trim()
+    const ok = await openUpdatePage(href)
+    if (!ok) {
+      showAppToast('Не удалось открыть ссылку. Попробуйте «Открыть на GitHub».')
     }
   }
 
@@ -857,8 +866,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        void openUpdatePage(
-                                          updateResult.downloadUrl!,
+                                        void handleOpenUpdateLink(
+                                          updateResult.downloadUrl,
                                         )
                                       }
                                       className="inline-flex items-center gap-1.5 rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/50 text-ink text-[12px] font-medium px-2.5 py-1.5 transition-colors"
@@ -870,7 +879,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void openUpdatePage(
+                                    void handleOpenUpdateLink(
                                       updateResult.releaseUrl ||
                                         GITHUB_RELEASES_URL,
                                     )

@@ -577,7 +577,7 @@ function be(e) {
 	let t = e.filter((e) => typeof e.name == "string" && typeof e.browser_download_url == "string" && e.browser_download_url.startsWith("https://"));
 	if (process.platform === "darwin") {
 		let e = t.filter((e) => /\.dmg$/i.test(e.name));
-		return process.arch === "arm64" ? e.find((e) => /arm64/i.test(e.name)) ?? e[0]?.browser_download_url : e.find((e) => /x64|amd64|intel/i.test(e.name)) ?? e[0]?.browser_download_url;
+		return (process.arch === "arm64" ? e.find((e) => /arm64/i.test(e.name)) ?? e[0] : e.find((e) => /x64|amd64|intel/i.test(e.name)) ?? e[0])?.browser_download_url;
 	}
 	if (process.platform === "win32") {
 		let e = t.filter((e) => /\.exe$/i.test(e.name));
