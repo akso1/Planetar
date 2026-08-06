@@ -2956,7 +2956,8 @@ html:is(.theme-light, .theme-custom-light) .tg-invite-row:hover {
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 50;
+  /* Below modals (settings z-900+); still above chat-list rows */
+  z-index: 20;
   width: 10px;
   cursor: col-resize;
   touch-action: none;

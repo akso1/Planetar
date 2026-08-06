@@ -6,6 +6,7 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle,
@@ -524,12 +525,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const goBack = () => setPage('home')
 
-  return (
+  return createPortal(
     <>
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[900] flex items-center justify-center p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1343,7 +1344,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           onClose={() => setProtectionOpen(false)}
         />
       )}
-    </>
+    </>,
+    document.body,
   )
 }
 
