@@ -185,6 +185,11 @@ export function MainLayout() {
 
   useEffect(() => {
     if (!client) return
+    return useBizTasksStore.getState().bindClient(client)
+  }, [client])
+
+  useEffect(() => {
+    if (!client) return
     const userId = client.getUserId()
     if (!userId) return
     const key = `${PROTECTION_PROMPT_KEY}:${userId}`

@@ -1,7 +1,14 @@
 import { create } from 'zustand'
+import {
+  ClientEvent,
+  type MatrixClient,
+  type MatrixEvent,
+} from 'matrix-js-sdk'
 import { showAppToast } from '@/shared/lib/appToast'
 
 export const BIZ_TASKS_STORAGE_KEY = 'planetar-biz-tasks'
+/** Matrix account_data type — syncs across devices for the logged-in user. */
+export const BIZ_TASKS_ACCOUNT_DATA_TYPE = 'app.planetar.biz_tasks'
 
 export type BizTaskLinkKind = 'request' | 'reply'
 
@@ -84,6 +91,12 @@ export type BizTaskFilters = {
   query: string
   /** Reply-room name; empty = all chats */
   roomName: string
+}
+
+type BizTasksAccountContent = {
+  version: 1
+  tasks: unknown[]
+  updatedAt: number
 }
 
 export function isBizTaskPipelineStatus(
@@ -182,20 +195,6 @@ function normalizeTask(raw: Record<string, unknown>): BizTask {
   }
 }
 
-function readTasks(): BizTask[] {
-  try {
-    const raw = localStorage.getItem(BIZ_TASKS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter(isBizTaskShape)
-      .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
-  } catch {
-    return []
-  }
-}
-
 function isBizTaskShape(v: unknown): boolean {
   if (!v || typeof v !== 'object') return false
   const t = v as BizTask
@@ -207,11 +206,42 @@ function isBizTaskShape(v: unknown): boolean {
   )
 }
 
-function persistTasks(tasks: BizTask[]) {
+function parseTasksArray(parsed: unknown): BizTask[] {
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter(isBizTaskShape)
+    .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+}
+
+function readLocalTasks(): BizTask[] {
+  try {
+    const raw = localStorage.getItem(BIZ_TASKS_STORAGE_KEY)
+    if (!raw) return []
+    return parseTasksArray(JSON.parse(raw) as unknown)
+  } catch {
+    return []
+  }
+}
+
+function persistLocal(tasks: BizTask[]) {
   try {
     localStorage.setItem(BIZ_TASKS_STORAGE_KEY, JSON.stringify(tasks))
   } catch {
     /* ignore quota */
+  }
+}
+
+/** null = no account_data event yet (migrate local). Array = cloud snapshot (may be empty). */
+function readAccountTasks(client: MatrixClient): BizTask[] | null {
+  try {
+    const ev = client.getAccountData(BIZ_TASKS_ACCOUNT_DATA_TYPE as never)
+    if (!ev) return null
+    const content = ev.getContent?.() as Partial<BizTasksAccountContent> | undefined
+    if (!content || !Array.isArray(content.tasks)) return []
+    return parseTasksArray(content.tasks)
+  } catch (err) {
+    console.warn('[bizTasks] failed to read account data', err)
+    return null
   }
 }
 
@@ -278,11 +308,96 @@ export function filterBizTasks(
   )
 }
 
+let hydrateClient: MatrixClient | null = null
+let applyingRemote = false
+let cloudPersistTimer: ReturnType<typeof setTimeout> | null = null
+let cloudPersistInFlight = false
+let cloudPersistQueued: BizTask[] | null = null
+
+async function persistAccountData(
+  client: MatrixClient | null | undefined,
+  tasks: BizTask[],
+) {
+  if (!client) return
+  const content: BizTasksAccountContent = {
+    version: 1,
+    tasks,
+    updatedAt: Date.now(),
+  }
+  try {
+    await client.setAccountData(BIZ_TASKS_ACCOUNT_DATA_TYPE as never, content)
+  } catch (err) {
+    console.warn('[bizTasks] failed to persist account data', err)
+  }
+}
+
+function flushCloudPersist() {
+  if (cloudPersistInFlight) return
+  const client = hydrateClient
+  const tasks = cloudPersistQueued
+  cloudPersistQueued = null
+  if (!client || !tasks || applyingRemote) return
+  cloudPersistInFlight = true
+  void persistAccountData(client, tasks).finally(() => {
+    cloudPersistInFlight = false
+    if (cloudPersistQueued) flushCloudPersist()
+  })
+}
+
+function scheduleCloudPersist(tasks: BizTask[]) {
+  cloudPersistQueued = tasks
+  if (cloudPersistTimer) clearTimeout(cloudPersistTimer)
+  cloudPersistTimer = setTimeout(() => {
+    cloudPersistTimer = null
+    flushCloudPersist()
+  }, 400)
+}
+
+/** Local cache always; Matrix account data when logged in (same UX). */
+function persistTasks(tasks: BizTask[]) {
+  persistLocal(tasks)
+  if (!applyingRemote) scheduleCloudPersist(tasks)
+}
+
+function tasksSignature(tasks: BizTask[]): string {
+  return tasks
+    .map(
+      (t) =>
+        `${t.id}:${t.updatedAt}:${t.status}:${t.pipelineStatus}:${t.links.length}`,
+    )
+    .join('|')
+}
+
+async function syncFromClient(client: MatrixClient) {
+  const remote = readAccountTasks(client)
+  const local = readLocalTasks()
+
+  if (remote !== null) {
+    const sorted = sortTasks(remote)
+    applyingRemote = true
+    try {
+      persistLocal(sorted)
+      useBizTasksStore.setState({ tasks: sorted })
+    } finally {
+      applyingRemote = false
+    }
+    return
+  }
+
+  // No cloud event yet — keep local UI and migrate once.
+  if (local.length > 0) {
+    useBizTasksStore.setState({ tasks: sortTasks(local) })
+    await persistAccountData(client, local)
+  }
+}
+
 type BizTasksState = {
   tasks: BizTask[]
   panelOpen: boolean
   selectedTaskId: string | null
   hydrate: () => void
+  /** Attach Matrix client: load/migrate account data + live sync. */
+  bindClient: (client: MatrixClient | null) => () => void
   setPanelOpen: (open: boolean) => void
   selectTask: (id: string | null) => void
   createTaskFromMessage: (ref: BizTaskMessageRef) => BizTask
@@ -315,8 +430,49 @@ export const useBizTasksStore = create<BizTasksState>((set, get) => ({
   selectedTaskId: null,
 
   hydrate: () => {
-    const tasks = sortTasks(readTasks())
+    const tasks = sortTasks(readLocalTasks())
     set({ tasks })
+  },
+
+  bindClient: (client) => {
+    if (!client) {
+      hydrateClient = null
+      return () => {}
+    }
+    hydrateClient = client
+    void syncFromClient(client)
+
+    const onAccountData = (event: MatrixEvent) => {
+      if (event.getType() !== BIZ_TASKS_ACCOUNT_DATA_TYPE) return
+      if (applyingRemote) return
+      try {
+        const content = event.getContent?.() as
+          | Partial<BizTasksAccountContent>
+          | undefined
+        if (!content || !Array.isArray(content.tasks)) return
+        const next = sortTasks(parseTasksArray(content.tasks))
+        if (tasksSignature(next) === tasksSignature(get().tasks)) return
+        applyingRemote = true
+        try {
+          persistLocal(next)
+          set({ tasks: next })
+        } finally {
+          applyingRemote = false
+        }
+      } catch (err) {
+        console.warn('[bizTasks] account data listener failed', err)
+      }
+    }
+
+    client.on(ClientEvent.AccountData, onAccountData)
+    return () => {
+      client.removeListener(ClientEvent.AccountData, onAccountData)
+      if (hydrateClient === client) hydrateClient = null
+      if (cloudPersistTimer) {
+        clearTimeout(cloudPersistTimer)
+        cloudPersistTimer = null
+      }
+    }
   },
 
   setPanelOpen: (open) => {
@@ -501,7 +657,7 @@ export const useBizTasksStore = create<BizTasksState>((set, get) => ({
       .length,
 }))
 
-/** Call once at app start (idempotent). */
+/** Call once at app start (idempotent) — loads local cache instantly. */
 export function initBizTasks() {
   useBizTasksStore.getState().hydrate()
 }
