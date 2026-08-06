@@ -352,6 +352,11 @@ export const useRoomStore = create<RoomState>()(
     let client: MatrixClient | null = null
     const eventListeners: Map<string, (...args: any[]) => void> = new Map()
 
+    /** Coalesce high-frequency timeline/receipt/decrypt storms into one list rebuild. */
+    let updateRoomsTimer: ReturnType<typeof setTimeout> | null = null
+    let updateRoomsLastRun = 0
+    const UPDATE_ROOMS_MIN_MS = 120
+
     const clearLocalUnread = (room: Room) => {
       room.setUnreadNotificationCount(NotificationCountType.Total, 0)
       room.setUnreadNotificationCount(NotificationCountType.Highlight, 0)
@@ -401,7 +406,10 @@ export const useRoomStore = create<RoomState>()(
 
         let total = 0
         let highlight = 0
-        for (let i = events.length - 1; i >= 0; i--) {
+        // Bound scan — very long live timelines (search scrollback) must not
+        // walk tens of thousands of events on every room-list refresh.
+        const scanFrom = Math.max(0, events.length - 400)
+        for (let i = events.length - 1; i >= scanFrom; i--) {
           const ev = events[i]
           const id = ev.getId()
           if (!id || isLocalEchoEventId(id)) continue
@@ -437,7 +445,7 @@ export const useRoomStore = create<RoomState>()(
       }
     }
 
-    const updateRooms = () => {
+    const updateRoomsNow = () => {
       if (!client) return
       reconcileUnreadCounts()
       const allRooms = client.getRooms()
@@ -483,6 +491,26 @@ export const useRoomStore = create<RoomState>()(
         spaceRooms: joinedSpaces,
         status: 'ready',
       })
+      updateRoomsLastRun = Date.now()
+    }
+
+    const updateRooms = (opts?: { immediate?: boolean }) => {
+      if (!client) return
+      if (opts?.immediate) {
+        if (updateRoomsTimer) {
+          clearTimeout(updateRoomsTimer)
+          updateRoomsTimer = null
+        }
+        updateRoomsNow()
+        return
+      }
+      const elapsed = Date.now() - updateRoomsLastRun
+      const wait = Math.max(0, UPDATE_ROOMS_MIN_MS - elapsed)
+      if (updateRoomsTimer) return
+      updateRoomsTimer = setTimeout(() => {
+        updateRoomsTimer = null
+        updateRoomsNow()
+      }, wait)
     }
 
     const onSync = (state: SyncState) => {
@@ -493,7 +521,11 @@ export const useRoomStore = create<RoomState>()(
         state === SyncState.Syncing ||
         state === SyncState.Catchup
       ) {
-        updateRooms()
+        // First paint should not wait for debounce
+        updateRooms({
+          immediate:
+            state === SyncState.Prepared || updateRoomsLastRun === 0,
+        })
       }
     }
 
@@ -840,22 +872,26 @@ export const useRoomStore = create<RoomState>()(
             ) {
               useChatListPrefsStore.getState().prunePinnedIds([room.roomId])
             }
-            updateRooms()
+            updateRooms({ immediate: true })
           }
           client.on(RoomEvent.MyMembership, onMyMembership)
           eventListeners.set(RoomEvent.MyMembership, onMyMembership)
 
           if (client.getRooms().length > 0) {
             // IndexedDBStore already hydrated rooms — paint list before network sync
-            updateRooms()
+            updateRooms({ immediate: true })
           } else if (
             client.getSyncState() === SyncState.Prepared ||
             client.getSyncState() === SyncState.Syncing
           ) {
-            updateRooms()
+            updateRooms({ immediate: true })
           }
         },
         cleanup: () => {
+          if (updateRoomsTimer) {
+            clearTimeout(updateRoomsTimer)
+            updateRoomsTimer = null
+          }
           if (!client) return
           eventListeners.forEach((listener, event) => {
             client!.removeListener(event, listener)

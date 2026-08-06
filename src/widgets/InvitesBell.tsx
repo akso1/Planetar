@@ -45,7 +45,7 @@ function InviteRow({
       <MxcAvatar
         client={client}
         mxcUrl={invite.avatarMxc}
-        label={invite.name}
+        label={invite.inviterName || invite.name}
         size={40}
         className="shrink-0"
       />

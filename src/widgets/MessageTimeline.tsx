@@ -80,6 +80,7 @@ import { MessageBody } from '@/shared/ui/MessageBody'
 import { MessageMarkdown } from '@/shared/ui/MessageMarkdown'
 import { TwemojiImg } from '@/shared/ui/twemoji'
 import { copyTextToClipboard } from '@/shared/lib/clipboard'
+import type { BizTaskMessageRef } from '@/shared/lib/bizTasks'
 import { MessageContextMenu } from '@/shared/ui/MessageContextMenu'
 import { FilePreviewModal } from '@/widgets/FilePreviewModal'
 import {
@@ -92,7 +93,7 @@ import {
   getReceiptTipReaders,
   getUsersWhoReadEvent,
 } from '@/shared/lib/readReceipts'
-import { extractEmbeddedQuote, getQuoteSelectionWithin } from '@/shared/lib/messageQuote'
+import { extractEmbeddedQuote, getQuoteSelectionWithin, installMessageSelectionGuard, hasActiveMessageTextSelection, clearMessageSelectionSnap } from '@/shared/lib/messageQuote'
 import { matrixContentToComposerText } from '@/shared/lib/composerFormat'
 import {
   clearQuoteTextHighlights,
@@ -421,6 +422,8 @@ const TimelineScrollContext =
 
 /** Soft DOM budget for the live timeline (historical TimelineWindow is already windowed). */
 const MAX_LIVE_TIMELINE_EVENTS = 400
+/** Absolute React mount ceiling when scrolled up on the live timeline (not TimelineWindow). */
+const MAX_LIVE_TIMELINE_EVENTS_HARD = 800
 /** Dropdown rows — full hit count lives in a ref for ↑↓ navigation. */
 const SEARCH_DROPDOWN_LIMIT = 60
 /** Cap navigable hits to keep jump list bounded in huge rooms. */
@@ -429,9 +432,10 @@ const SEARCH_HIT_CAP = 500
  * Background scrollback while searching (SDK only — UI stays frozen).
  * Always runs after server search: HS search is incomplete (tokenization,
  * edits, media captions) and must be paired with a local pass.
+ * Keep modest — each page permanently grows the room live timeline in RAM.
  */
-const SEARCH_SCROLLBACK_PAGES = 60
-const SEARCH_SCROLLBACK_SIZE = 100
+const SEARCH_SCROLLBACK_PAGES = 12
+const SEARCH_SCROLLBACK_SIZE = 80
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => {
@@ -2489,6 +2493,8 @@ export function MessageTimeline({
   }, [])
 
   const setHoveredEventIdDelayed = useCallback((eventId: string | null) => {
+    // Hover chrome remounts side actions and can wipe text selection mid-drag.
+    if (hasActiveMessageTextSelection()) return
     if (hoverClearTimer.current != null) {
       window.clearTimeout(hoverClearTimer.current)
       hoverClearTimer.current = null
@@ -2606,12 +2612,13 @@ export function MessageTimeline({
       })
       // While glued to live end, drop the oldest excess so the flat list
       // doesn't grow without bound after many scrollback pages.
-      if (
-        !timelineWindowRef.current &&
-        stickToBottom.current &&
-        next.length > MAX_LIVE_TIMELINE_EVENTS
-      ) {
-        next = next.slice(next.length - MAX_LIVE_TIMELINE_EVENTS)
+      if (!timelineWindowRef.current) {
+        const cap = stickToBottom.current
+          ? MAX_LIVE_TIMELINE_EVENTS
+          : MAX_LIVE_TIMELINE_EVENTS_HARD
+        if (next.length > cap) {
+          next = next.slice(next.length - cap)
+        }
       }
       // Background ⌘F scrollback must not rebuild the visible message list
       // (that was the main search lag). Still allow live appends.
@@ -2772,6 +2779,12 @@ export function MessageTimeline({
   useEffect(() => {
     personalPinsHydrate()
   }, [personalPinsHydrate])
+
+  useEffect(() => installMessageSelectionGuard(), [])
+
+  const onPollChangedStable = useCallback(() => {
+    setPollTick((t) => t + 1)
+  }, [])
 
   const personalPinnedIds = useMemo(() => {
     if (!myUserId || !activeRoomId) return [] as string[]
@@ -4511,16 +4524,22 @@ export function MessageTimeline({
     })
   }, [])
 
-  const handleCopyFromMenu = useCallback(async (events: MatrixEvent[]) => {
-    const text =
-      events.length > 1
-        ? events.map(messagePlainText).filter(Boolean).join('\n') ||
-          messageSnippet(events[0])
-        : messagePlainText(events[0]) || messageSnippet(events[0])
-    if (!text) return
-    const ok = await copyTextToClipboard(text)
-    if (!ok) console.error('Failed to copy')
-  }, [])
+  const handleCopyFromMenu = useCallback(
+    async (events: MatrixEvent[], selectedText?: string) => {
+      const picked = selectedText?.trim()
+      const text = picked
+        ? picked
+        : events.length > 1
+          ? events.map(messagePlainText).filter(Boolean).join('\n') ||
+            messageSnippet(events[0])
+          : messagePlainText(events[0]) || messageSnippet(events[0])
+      if (!text) return
+      const ok = await copyTextToClipboard(text)
+      if (!ok) console.error('Failed to copy')
+      clearMessageSelectionSnap()
+    },
+    [],
+  )
 
   const handleSaveGifFromMenu = useCallback(
     async (events: MatrixEvent[]) => {
@@ -6135,7 +6154,7 @@ export function MessageTimeline({
                         }
                         onHoverActionsChange={setHoveredEventIdDelayed}
                         pollTick={pollTick}
-                        onPollChanged={() => setPollTick((t) => t + 1)}
+                        onPollChanged={onPollChangedStable}
                       />
                     )}
                   </div>
@@ -6295,6 +6314,7 @@ export function MessageTimeline({
             isOwn={ctxMenu.isOwn}
             canEdit={canEditEvent(ctxMenu.events[0], ctxMenu.isOwn)}
             canCopy={
+              !!ctxMenu.quoteText ||
               ctxMenu.events.some((e) => !!messagePlainText(e)) ||
               ctxMenu.events.some((e) => !!messageSnippet(e))
             }
@@ -6359,7 +6379,9 @@ export function MessageTimeline({
             onForward={() => openForwardPicker(ctxMenu.events)}
             onSelect={() => beginSelectFromMenu(ctxMenu.events)}
             onEdit={() => handleEditFromMenu(ctxMenu.events)}
-            onCopy={() => void handleCopyFromMenu(ctxMenu.events)}
+            onCopy={() =>
+              void handleCopyFromMenu(ctxMenu.events, ctxMenu.quoteText)
+            }
             onDelete={() => void handleDeleteFromMenu(ctxMenu.events)}
             onKickSender={() =>
               openModerationFromEvents(ctxMenu.events, 'kick')
@@ -6375,6 +6397,29 @@ export function MessageTimeline({
             onReact={(emoji) =>
               void handleReactFromMenu(ctxMenu.events, emoji)
             }
+            bizTaskRef={(() => {
+              const ev = ctxMenu.events[0]
+              const eventId = ev?.getId()
+              if (!ev || !eventId || !activeRoom || eventId.startsWith('~')) {
+                return null
+              }
+              const senderId = ev.getSender() ?? undefined
+              const member = senderId
+                ? activeRoom.getMember(senderId)
+                : null
+              const body =
+                messagePlainText(ev) || messageSnippet(ev) || ''
+              const ref: BizTaskMessageRef = {
+                roomId: activeRoom.roomId,
+                roomName: activeRoom.name || activeRoom.roomId,
+                eventId,
+                body,
+                senderId,
+                senderName: member?.name || senderId,
+                ts: ev.getTs() || Date.now(),
+              }
+              return ref
+            })()}
           />
         )}
 

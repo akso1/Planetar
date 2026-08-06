@@ -105,6 +105,17 @@ const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi
 
 /** Keep decrypted shared-history across profile open/close to avoid decrypt spam. */
 const profileHistoryCache = new Map<string, MatrixEvent[]>()
+const PROFILE_HISTORY_CACHE_MAX_ROOMS = 8
+
+function putProfileHistoryCache(roomId: string, events: MatrixEvent[]) {
+  if (profileHistoryCache.has(roomId)) profileHistoryCache.delete(roomId)
+  profileHistoryCache.set(roomId, events)
+  while (profileHistoryCache.size > PROFILE_HISTORY_CACHE_MAX_ROOMS) {
+    const oldest = profileHistoryCache.keys().next().value
+    if (oldest == null) break
+    profileHistoryCache.delete(oldest)
+  }
+}
 
 function memberDisplayName(m: RoomMember): string {
   return (
@@ -564,7 +575,7 @@ export function RoomProfileModal({
     setHistoryEvents([])
 
     const BATCH = 100
-    const MAX_BATCHES = 40
+    const MAX_BATCHES = 20
     const mapper = client.getEventMapper({ preventReEmit: true })
     const accumulated: MatrixEvent[] = []
 
@@ -606,7 +617,7 @@ export function RoomProfileModal({
         }
       }
       if (!cancelled) {
-        profileHistoryCache.set(room.roomId, accumulated)
+        putProfileHistoryCache(room.roomId, accumulated)
         setHistoryLoading(false)
       }
     }

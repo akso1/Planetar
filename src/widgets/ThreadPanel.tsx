@@ -21,7 +21,7 @@ import {
   downloadMessageAttachment,
   downloadMessageAttachmentPreview,
 } from '@/shared/lib/matrixMedia'
-import { getQuoteSelectionWithin } from '@/shared/lib/messageQuote'
+import { getQuoteSelectionWithin, installMessageSelectionGuard, clearMessageSelectionSnap } from '@/shared/lib/messageQuote'
 import { isPollStartEvent } from '@/shared/lib/polls'
 import {
   ensureRoomThread,
@@ -37,6 +37,7 @@ import {
 } from '@/shared/lib/threads'
 import { MessageBody } from '@/shared/ui/MessageBody'
 import { MessageContextMenu } from '@/shared/ui/MessageContextMenu'
+import type { BizTaskMessageRef } from '@/shared/lib/bizTasks'
 import type { MentionMember } from '@/shared/ui/MessageMarkdown'
 import type { MentionUserClickHandler } from '@/shared/lib/mentions'
 import {
@@ -469,6 +470,8 @@ export function ThreadPanel({
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
   const myUserId = client.getUserId()
 
+  useEffect(() => installMessageSelectionGuard(), [])
+
   const rootEvent = useMemo(() => {
     return room.findEventById(rootEventId) ?? null
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -794,11 +797,18 @@ export function ThreadPanel({
     })
   }, [])
 
-  const handleCopyFromMenu = useCallback(async (event: MatrixEvent) => {
-    const text = threadMessagePlainText(event) || messageSnippet(event)
-    if (!text) return
-    await copyTextToClipboard(text)
-  }, [])
+  const handleCopyFromMenu = useCallback(
+    async (event: MatrixEvent, selectedText?: string) => {
+      const text =
+        selectedText?.trim() ||
+        threadMessagePlainText(event) ||
+        messageSnippet(event)
+      if (!text) return
+      await copyTextToClipboard(text)
+      clearMessageSelectionSnap()
+    },
+    [],
+  )
 
   const handleDeleteFromMenu = useCallback(
     async (event: MatrixEvent) => {
@@ -967,6 +977,7 @@ export function ThreadPanel({
               isOwn={ctxMenu.isOwn}
               canEdit={canEditThreadEvent(ctxMenu.event, ctxMenu.isOwn)}
               canCopy={
+                !!ctxMenu.quoteText ||
                 !!threadMessagePlainText(ctxMenu.event) ||
                 !!messageSnippet(ctxMenu.event)
               }
@@ -982,11 +993,32 @@ export function ThreadPanel({
               }
               onReply={() => handleReplyFromMenu(ctxMenu.event)}
               onEdit={() => handleEditFromMenu(ctxMenu.event)}
-              onCopy={() => void handleCopyFromMenu(ctxMenu.event)}
+              onCopy={() =>
+                void handleCopyFromMenu(ctxMenu.event, ctxMenu.quoteText)
+              }
               onDelete={() => void handleDeleteFromMenu(ctxMenu.event)}
               onReact={(emoji) =>
                 void handleReactFromMenu(ctxMenu.event, emoji)
               }
+              bizTaskRef={(() => {
+                const ev = ctxMenu.event
+                const eventId = ev?.getId()
+                if (!ev || !eventId || eventId.startsWith('~')) return null
+                const senderId = ev.getSender() ?? undefined
+                const member = senderId ? room.getMember(senderId) : null
+                const body =
+                  threadMessagePlainText(ev) || messageSnippet(ev) || ''
+                const ref: BizTaskMessageRef = {
+                  roomId: room.roomId,
+                  roomName: room.name || room.roomId,
+                  eventId,
+                  body,
+                  senderId,
+                  senderName: member?.name || senderId,
+                  ts: ev.getTs() || Date.now(),
+                }
+                return ref
+              })()}
             />
           )}
         </motion.div>

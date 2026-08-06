@@ -63,6 +63,14 @@ function writePersistedNow(): void {
       entries.length > MAX_PERSISTED
         ? entries.slice(entries.length - MAX_PERSISTED)
         : entries
+    if (trimmed.length !== entries.length) {
+      knownThreadReplyIds.clear()
+      knownThreadReplyRoot.clear()
+      for (const [k, v] of trimmed) {
+        knownThreadReplyIds.add(k)
+        knownThreadReplyRoot.set(k, v)
+      }
+    }
     const obj: Record<string, string> = {}
     for (const [k, v] of trimmed) obj[k] = v
     localStorage.setItem(STORAGE_KEY, JSON.stringify(obj))
@@ -106,7 +114,11 @@ export function rememberThreadReply(
   const prevRoot = knownThreadReplyRoot.get(eventId)
   knownThreadReplyIds.add(eventId)
   if (rootId) knownThreadReplyRoot.set(eventId, rootId)
-  if (!hadId || (rootId && prevRoot !== rootId)) schedulePersist()
+  if (knownThreadReplyRoot.size > MAX_PERSISTED * 1.25) {
+    writePersistedNow()
+  } else if (!hadId || (rootId && prevRoot !== rootId)) {
+    schedulePersist()
+  }
 }
 
 /** Reply event ids we have recorded under a given thread root. */

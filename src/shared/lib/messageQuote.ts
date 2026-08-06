@@ -17,37 +17,125 @@ export function normalizeQuoteText(raw: string): string {
   return text
 }
 
+type MessageSelectionSnap = {
+  text: string
+  /** `.tg-msg` element that owned the selection */
+  messageEl: Element
+}
+
 /**
- * Selected text inside a single message bubble (for quote-reply).
+ * Last non-empty selection inside a message body.
+ * Kept when React remounts the bubble and the live Selection collapses —
+ * common while the timeline re-renders (receipts, hover chrome, typing).
+ */
+let lastMessageSelection: MessageSelectionSnap | null = null
+let selectionGuardInstalled = false
+
+function messageElFromNode(node: Node | null): Element | null {
+  if (!node) return null
+  const el =
+    node.nodeType === Node.TEXT_NODE
+      ? node.parentElement
+      : (node as Element | null)
+  if (!el) return null
+  const body = el.closest('.tg-msg-body, .tg-bubble-text, .tg-md')
+  if (!body) return null
+  return body.closest('.tg-msg')
+}
+
+function readLiveMessageSelection(): MessageSelectionSnap | null {
+  if (typeof window === 'undefined') return null
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0)
+  const messageEl = messageElFromNode(range.commonAncestorContainer)
+  if (!messageEl) return null
+  const text = normalizeQuoteText(sel.toString())
+  if (!text) return null
+  return { text, messageEl }
+}
+
+function captureMessageSelectionSnap() {
+  const live = readLiveMessageSelection()
+  if (live) lastMessageSelection = live
+  // Collapsed / remount: keep previous snap until pointerdown elsewhere.
+}
+
+/**
+ * Track message text selections so quote/copy still work after a remount
+ * clears the native Selection. Safe to call multiple times.
+ */
+export function installMessageSelectionGuard(): () => void {
+  if (typeof document === 'undefined') return () => {}
+  if (selectionGuardInstalled) return () => {}
+  selectionGuardInstalled = true
+
+  const onSelChange = () => captureMessageSelectionSnap()
+  const onPointerDown = (e: PointerEvent) => {
+    // Keep snap for contextmenu (button 2) — capture runs in the handler.
+    if (e.button === 2) return
+    const t = e.target
+    if (!(t instanceof Node)) {
+      lastMessageSelection = null
+      return
+    }
+    if (lastMessageSelection?.messageEl.contains(t)) return
+    // Don't clear when interacting with the message context menu
+    if (t instanceof Element && t.closest('.tg-ctx-menu')) return
+    lastMessageSelection = null
+  }
+
+  document.addEventListener('selectionchange', onSelChange)
+  document.addEventListener('pointerdown', onPointerDown, true)
+
+  return () => {
+    selectionGuardInstalled = false
+    document.removeEventListener('selectionchange', onSelChange)
+    document.removeEventListener('pointerdown', onPointerDown, true)
+  }
+}
+
+export function hasActiveMessageTextSelection(): boolean {
+  if (readLiveMessageSelection()) return true
+  return !!lastMessageSelection?.text
+}
+
+export function clearMessageSelectionSnap() {
+  lastMessageSelection = null
+}
+
+/**
+ * Selected text inside a single message bubble (for quote-reply / copy).
  * Returns '' if selection is empty, collapsed, or spans outside one message.
+ * Falls back to the last snap when the live Selection was cleared by a remount.
  */
 export function getQuoteSelectionWithin(
   messageRoot: Element | null | undefined,
 ): string {
   if (typeof window === 'undefined') return ''
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return ''
 
-  const range = sel.getRangeAt(0)
-  const ancestor = range.commonAncestorContainer
-  const el =
-    ancestor.nodeType === Node.TEXT_NODE
-      ? ancestor.parentElement
-      : (ancestor as Element | null)
-  if (!el) return ''
+  const root = messageRoot
+    ? messageRoot.closest('.tg-msg') || messageRoot
+    : null
 
-  const body = el.closest('.tg-msg-body, .tg-bubble-text, .tg-md')
-  if (!body) return ''
-
-  const msg = body.closest('.tg-msg')
-  if (!msg) return ''
-
-  if (messageRoot) {
-    const root = messageRoot.closest('.tg-msg') || messageRoot
-    if (!root.contains(body)) return ''
+  const matchesRoot = (messageEl: Element) => {
+    if (!root) return true
+    if (root === messageEl || root.contains(messageEl)) return true
+    // After remount the snap node is detached — compare ids
+    const rootId = root.id
+    const snapId = messageEl.id
+    return !!rootId && !!snapId && rootId === snapId
   }
 
-  return normalizeQuoteText(sel.toString())
+  const live = readLiveMessageSelection()
+  if (live && matchesRoot(live.messageEl)) {
+    lastMessageSelection = live
+    return live.text
+  }
+
+  const snap = lastMessageSelection
+  if (snap?.text && matchesRoot(snap.messageEl)) return snap.text
+  return ''
 }
 
 /** Plain-body markdown-style quote lines (`> …`). */

@@ -50,7 +50,7 @@ export function isLocalMediaMxc(mxc: string): boolean {
 
 /**
  * Seed the object-URL cache so timeline media can paint without re-downloading.
- * Does not bump refs — pair with normal acquire/release from the UI.
+ * Does not bump refs — unused primes are revoked after the idle delay.
  */
 export function primeCachedObjectUrl(cacheKey: string, blob: Blob): void {
   const existing = objectUrlCache.get(cacheKey)
@@ -59,6 +59,7 @@ export function primeCachedObjectUrl(cacheKey: string, blob: Blob): void {
       clearTimeout(existing.revokeTimer)
       existing.revokeTimer = null
     }
+    if (existing.refs <= 0) scheduleIdleRevoke(cacheKey)
     return
   }
   objectUrlCache.set(cacheKey, {
@@ -66,6 +67,19 @@ export function primeCachedObjectUrl(cacheKey: string, blob: Blob): void {
     refs: 0,
     revokeTimer: null,
   })
+  scheduleIdleRevoke(cacheKey)
+}
+
+function scheduleIdleRevoke(cacheKey: string): void {
+  const entry = objectUrlCache.get(cacheKey)
+  if (!entry || entry.refs > 0) return
+  if (entry.revokeTimer) clearTimeout(entry.revokeTimer)
+  entry.revokeTimer = setTimeout(() => {
+    const cur = objectUrlCache.get(cacheKey)
+    if (!cur || cur.refs > 0) return
+    URL.revokeObjectURL(cur.url)
+    objectUrlCache.delete(cacheKey)
+  }, OBJECT_URL_REVOKE_DELAY_MS)
 }
 
 /** Prime preview + full keys used by MediaImage / viewers. */
@@ -150,13 +164,7 @@ export function releaseCachedObjectUrl(cacheKey: string): void {
   if (!entry) return
   entry.refs = Math.max(0, entry.refs - 1)
   if (entry.refs > 0) return
-  if (entry.revokeTimer) clearTimeout(entry.revokeTimer)
-  entry.revokeTimer = setTimeout(() => {
-    const cur = objectUrlCache.get(cacheKey)
-    if (!cur || cur.refs > 0) return
-    URL.revokeObjectURL(cur.url)
-    objectUrlCache.delete(cacheKey)
-  }, OBJECT_URL_REVOKE_DELAY_MS)
+  scheduleIdleRevoke(cacheKey)
 }
 
 /**

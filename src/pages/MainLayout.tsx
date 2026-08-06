@@ -17,6 +17,8 @@ import { DeviceVerificationModal } from '../widgets/DeviceVerificationModal'
 import { LeftSidebar } from '../widgets/LeftSidebar'
 import { CallOverlay } from '../widgets/CallOverlay'
 import { MessageTimeline } from '../widgets/MessageTimeline'
+import { TaskManager } from '../widgets/TaskManager'
+import { useBizTasksStore } from '@/shared/lib/bizTasks'
 import { clsx } from 'clsx'
 
 const PROTECTION_PROMPT_KEY = 'matrix-chat-protection-prompted'
@@ -28,6 +30,7 @@ export function MainLayout() {
   const activeRoomId = useRoomStore((s) => s.activeRoomId)
   const setActiveRoomId = useRoomStore((s) => s.actions.setActiveRoomId)
   const openIncoming = useVerificationUiStore((s) => s.openIncoming)
+  const tasksPanelOpen = useBizTasksStore((s) => s.panelOpen)
   const [protectionOpen, setProtectionOpen] = useState(false)
 
   /** Keep chat mounted while the exit spring plays. */
@@ -161,6 +164,10 @@ export function MainLayout() {
       crypto = client.getCrypto()
       if (!crypto) return
       crypto.on(CryptoEvent.VerificationRequestReceived, onRequest)
+      // Race: cleanup may have run while ensureCryptoReady was awaiting
+      if (cancelled) {
+        crypto.off(CryptoEvent.VerificationRequestReceived, onRequest)
+      }
     }
 
     void attach()
@@ -204,35 +211,43 @@ export function MainLayout() {
         <ErrorBoundary soft name="left_sidebar">
           <LeftSidebar />
         </ErrorBoundary>
-        <ErrorBoundary soft name="chat_list">
-          <ChatList />
-        </ErrorBoundary>
-        <ErrorBoundary soft name="chat_area">
-          <main className="tg-main relative flex-1 min-w-0 flex flex-col overflow-hidden">
-            <div
-              className="absolute inset-0 z-0 flex items-center justify-center tg-chat-bg pointer-events-none"
-              aria-hidden={!!visibleRoomId}
-            >
-              <p className="text-ink-faint text-[15px]">
-                Выберите чат, чтобы начать переписку
-              </p>
-            </div>
-            {visibleRoomId ? (
-              <div
-                ref={chatLayerRef}
-                className={clsx(
-                  'tg-chat-layer absolute inset-0 z-10 flex flex-col min-h-0 min-w-0',
-                  isClosingChat && 'tg-chat-layer--closing',
-                )}
-              >
-                <MessageTimeline
-                  key={visibleRoomId}
-                  onRequestCloseChat={beginCloseChat}
-                />
-              </div>
-            ) : null}
-          </main>
-        </ErrorBoundary>
+        {tasksPanelOpen ? (
+          <ErrorBoundary soft name="task_manager">
+            <TaskManager />
+          </ErrorBoundary>
+        ) : (
+          <>
+            <ErrorBoundary soft name="chat_list">
+              <ChatList />
+            </ErrorBoundary>
+            <ErrorBoundary soft name="chat_area">
+              <main className="tg-main relative flex-1 min-w-0 flex flex-col overflow-hidden">
+                <div
+                  className="absolute inset-0 z-0 flex items-center justify-center tg-chat-bg pointer-events-none"
+                  aria-hidden={!!visibleRoomId}
+                >
+                  <p className="text-ink-faint text-[15px]">
+                    Выберите чат, чтобы начать переписку
+                  </p>
+                </div>
+                {visibleRoomId ? (
+                  <div
+                    ref={chatLayerRef}
+                    className={clsx(
+                      'tg-chat-layer absolute inset-0 z-10 flex flex-col min-h-0 min-w-0',
+                      isClosingChat && 'tg-chat-layer--closing',
+                    )}
+                  >
+                    <MessageTimeline
+                      key={visibleRoomId}
+                      onRequestCloseChat={beginCloseChat}
+                    />
+                  </div>
+                ) : null}
+              </main>
+            </ErrorBoundary>
+          </>
+        )}
       </div>
       <ErrorBoundary soft name="device_verification">
         {client && <DeviceVerificationModal client={client} />}

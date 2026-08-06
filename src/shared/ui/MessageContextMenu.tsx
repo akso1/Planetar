@@ -1,96 +1,46 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
-import { ArrowLeft, Ban, BookmarkPlus, CheckSquare, Copy, Forward, MessagesSquare, Pencil, Pin, PinOff, Plus, Quote, Reply, Search, Trash2, UserX } from 'lucide-react'
+import {
+  ArrowLeft,
+  Ban,
+  BookmarkPlus,
+  CheckSquare,
+  ChevronRight,
+  ClipboardList,
+  Copy,
+  Forward,
+  ListPlus,
+  MessagesSquare,
+  MessageSquareReply,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Quote,
+  Reply,
+  Search,
+  Trash2,
+  UserX,
+} from 'lucide-react'
 import {
   clampMenuPosition,
   type MenuPos,
 } from '@/shared/lib/clampMenuPosition'
+import {
+  useBizTasksStore,
+  type BizTaskLinkKind,
+  type BizTaskMessageRef,
+} from '@/shared/lib/bizTasks'
+import {
+  ALL_CONTEXT_EMOJIS,
+  QUICK_CONTEXT_REACTIONS,
+} from '@/shared/lib/contextEmojis'
 import { TwemojiImg } from '@/shared/ui/twemoji'
 
-export const QUICK_CONTEXT_REACTIONS = ['👍', '❤️', '🔥', '😂', '😢'] as const
+export { ALL_CONTEXT_EMOJIS, QUICK_CONTEXT_REACTIONS }
 
 type EmojiEntry = { emoji: string; keywords: string }
-
-/** Popular emoji grid with search keywords (ru/en) */
-export const ALL_CONTEXT_EMOJIS: EmojiEntry[] = [
-  { emoji: '👍', keywords: 'like thumb up лайк плюс' },
-  { emoji: '👎', keywords: 'dislike thumb down дизлайк минус' },
-  { emoji: '❤️', keywords: 'heart love сердце любовь' },
-  { emoji: '🔥', keywords: 'fire огонь огнь круто' },
-  { emoji: '🥰', keywords: 'love smile hearts влюблен' },
-  { emoji: '👏', keywords: 'clap applause аплодисменты' },
-  { emoji: '😁', keywords: 'grin smile улыбка радость' },
-  { emoji: '🤔', keywords: 'thinking думаю хм' },
-  { emoji: '🤯', keywords: 'mind blown шок взрыв' },
-  { emoji: '😱', keywords: 'scream fear ужас крик' },
-  { emoji: '🤬', keywords: 'angry swear злость мат' },
-  { emoji: '😢', keywords: 'cry sad слезы грусть' },
-  { emoji: '🎉', keywords: 'party confetti праздник ура' },
-  { emoji: '🤩', keywords: 'star eyes восторг' },
-  { emoji: '🤮', keywords: 'vomit тошнота фу' },
-  { emoji: '💩', keywords: 'poop какашка' },
-  { emoji: '🙏', keywords: 'pray thanks пожалуйста спасибо' },
-  { emoji: '👌', keywords: 'ok okay окей' },
-  { emoji: '🕊', keywords: 'dove peace голубь мир' },
-  { emoji: '🤡', keywords: 'clown клоун' },
-  { emoji: '🥱', keywords: 'yawn зевота скука' },
-  { emoji: '🥴', keywords: 'woozy пьяный' },
-  { emoji: '😍', keywords: 'heart eyes влюблен' },
-  { emoji: '🐳', keywords: 'whale кит' },
-  { emoji: '❤️‍🔥', keywords: 'heart on fire страсть' },
-  { emoji: '🌚', keywords: 'moon лицо луна' },
-  { emoji: '🌭', keywords: 'hotdog хотдог' },
-  { emoji: '💯', keywords: 'hundred сто процент' },
-  { emoji: '🤣', keywords: 'rofl смех ржу' },
-  { emoji: '⚡', keywords: 'zap lightning молния' },
-  { emoji: '🍌', keywords: 'banana банан' },
-  { emoji: '🏆', keywords: 'trophy кубок победа' },
-  { emoji: '💔', keywords: 'broken heart разбитое сердце' },
-  { emoji: '🤨', keywords: 'raised eyebrow сомнение' },
-  { emoji: '😐', keywords: 'neutral мех' },
-  { emoji: '🍓', keywords: 'strawberry клубника' },
-  { emoji: '🍾', keywords: 'champagne шампанское' },
-  { emoji: '💋', keywords: 'kiss поцелуй' },
-  { emoji: '🖕', keywords: 'middle finger фак' },
-  { emoji: '😈', keywords: 'devil smile демон' },
-  { emoji: '😴', keywords: 'sleep сон' },
-  { emoji: '😭', keywords: 'sob плач реву' },
-  { emoji: '🤓', keywords: 'nerd очкарик' },
-  { emoji: '👻', keywords: 'ghost призрак' },
-  { emoji: '👨‍💻', keywords: 'coder programmer разработчик' },
-  { emoji: '👀', keywords: 'eyes глаза смотрю' },
-  { emoji: '🎃', keywords: 'pumpkin halloween тыква' },
-  { emoji: '🙈', keywords: 'see no evil обезьяна' },
-  { emoji: '😇', keywords: 'angel innocent ангел' },
-  { emoji: '😨', keywords: 'fearful страх' },
-  { emoji: '🤝', keywords: 'handshake рукопожатие' },
-  { emoji: '✍️', keywords: 'writing пишу' },
-  { emoji: '🤗', keywords: 'hug обнимашки' },
-  { emoji: '🫡', keywords: 'salute салют' },
-  { emoji: '🎅', keywords: 'santa дед мороз' },
-  { emoji: '🎄', keywords: 'tree christmas елка' },
-  { emoji: '☃️', keywords: 'snowman снеговик' },
-  { emoji: '💅', keywords: 'nails маникюр' },
-  { emoji: '🤪', keywords: 'zany crazy безумный' },
-  { emoji: '🗿', keywords: 'moai статуя' },
-  { emoji: '🆒', keywords: 'cool круто' },
-  { emoji: '💘', keywords: 'cupid стрела сердце' },
-  { emoji: '🙉', keywords: 'hear no evil обезьяна' },
-  { emoji: '🦄', keywords: 'unicorn единорог' },
-  { emoji: '😘', keywords: 'kiss wink поцелуй' },
-  { emoji: '💊', keywords: 'pill таблетка' },
-  { emoji: '🙊', keywords: 'speak no evil обезьяна' },
-  { emoji: '😎', keywords: 'cool sunglasses крутой' },
-  { emoji: '👾', keywords: 'alien invader инопланетянин' },
-  { emoji: '🤷‍♂️', keywords: 'shrug мужчина хз' },
-  { emoji: '🤷', keywords: 'shrug хз незнаю' },
-  { emoji: '🤷‍♀️', keywords: 'shrug женщина хз' },
-  { emoji: '😡', keywords: 'rage angry злость' },
-  { emoji: '😂', keywords: 'joy tears смех слезы' },
-  { emoji: '✨', keywords: 'sparkles блеск' },
-  { emoji: '💪', keywords: 'muscle сила' },
-]
 
 // Dedupe by emoji (last wins for keywords merge is fine; keep unique)
 const EMOJI_LIST: EmojiEntry[] = (() => {
@@ -137,6 +87,8 @@ export type MessageContextMenuProps = {
   onUnpinForSelf?: () => void
   onSaveGif?: () => void
   onReact: (emoji: string) => void
+  /** When set, shows BizDev task actions for this message */
+  bizTaskRef?: BizTaskMessageRef | null
 }
 
 type Pos = MenuPos
@@ -173,13 +125,23 @@ export function MessageContextMenu({
   onUnpinForSelf,
   onSaveGif,
   onReact,
+  bizTaskRef,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const taskSearchRef = useRef<HTMLInputElement>(null)
   const [pos, setPos] = useState<Pos>({ left: x, top: y })
   const [ready, setReady] = useState(false)
-  const [view, setView] = useState<'actions' | 'emoji' | 'pin' | 'unpin'>('actions')
+  const [view, setView] = useState<
+    'actions' | 'emoji' | 'pin' | 'unpin' | 'addRequest' | 'addReply'
+  >('actions')
   const [query, setQuery] = useState('')
+  const [taskQuery, setTaskQuery] = useState('')
+  const tasks = useBizTasksStore((s) => s.tasks)
+  const createTaskFromMessage = useBizTasksStore((s) => s.createTaskFromMessage)
+  const addMessageToTask = useBizTasksStore((s) => s.addMessageToTask)
+  const hydrateTasks = useBizTasksStore((s) => s.hydrate)
+  const showTaskActions = !!bizTaskRef?.eventId
 
   const showPinEntry =
     !!onPinForSelf ||
@@ -211,7 +173,23 @@ export function MessageContextMenu({
     // Re-measure after paint (fonts / emoji metrics)
     const raf = requestAnimationFrame(place)
     return () => cancelAnimationFrame(raf)
-  }, [x, y, view, query, canEdit, canCopy, canDelete, canSaveGif, isOwn, showPinEntry, pinnedAny, quoteText])
+  }, [
+    x,
+    y,
+    view,
+    query,
+    taskQuery,
+    canEdit,
+    canCopy,
+    canDelete,
+    canSaveGif,
+    isOwn,
+    showPinEntry,
+    pinnedAny,
+    quoteText,
+    showTaskActions,
+    tasks.length,
+  ])
 
   useEffect(() => {
     if (view !== 'emoji') return
@@ -220,11 +198,25 @@ export function MessageContextMenu({
   }, [view])
 
   useEffect(() => {
+    if (view !== 'addRequest' && view !== 'addReply') return
+    hydrateTasks()
+    const t = window.setTimeout(() => taskSearchRef.current?.focus(), 40)
+    return () => window.clearTimeout(t)
+  }, [view, hydrateTasks])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (view === 'emoji' || view === 'pin' || view === 'unpin') {
+        if (
+          view === 'emoji' ||
+          view === 'pin' ||
+          view === 'unpin' ||
+          view === 'addRequest' ||
+          view === 'addReply'
+        ) {
           setView('actions')
           setQuery('')
+          setTaskQuery('')
         } else {
           onClose()
         }
@@ -261,6 +253,18 @@ export function MessageContextMenu({
     )
   }, [query])
 
+  const filteredTasks = useMemo(() => {
+    const activeOnly = tasks.filter((t) => t.status !== 'archived')
+    const q = taskQuery.trim().toLowerCase()
+    if (!q) return activeOnly
+    return activeOnly.filter(
+      (t) =>
+        t.tag.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        t.links.some((l) => l.body.toLowerCase().includes(q)),
+    )
+  }, [tasks, taskQuery])
+
   const pick = (emoji: string) => {
     onReact(emoji)
     onClose()
@@ -269,6 +273,25 @@ export function MessageContextMenu({
   const goBack = () => {
     setView('actions')
     setQuery('')
+    setTaskQuery('')
+  }
+
+  const openTaskPicker = (kind: BizTaskLinkKind) => {
+    hydrateTasks()
+    setTaskQuery('')
+    setView(kind === 'reply' ? 'addReply' : 'addRequest')
+  }
+
+  const handleCreateTask = () => {
+    if (!bizTaskRef) return
+    createTaskFromMessage(bizTaskRef)
+    onClose()
+  }
+
+  const handlePickTask = (taskId: string, kind: BizTaskLinkKind) => {
+    if (!bizTaskRef) return
+    addMessageToTask(taskId, kind, bizTaskRef)
+    onClose()
   }
 
   const handlePinClick = () => {
@@ -329,13 +352,20 @@ export function MessageContextMenu({
         'tg-ctx-menu fixed z-[1000] rounded-xl border border-hairline',
         'bg-[var(--menu-surface-solid)] overflow-hidden',
         'animate-[tg-ctx-pop_160ms_cubic-bezier(0.22,1,0.36,1)_both]',
-        view === 'emoji' ? 'w-[280px]' : 'min-w-[220px] w-[240px]',
+        view === 'emoji'
+          ? 'w-[300px]'
+          : view === 'addRequest' || view === 'addReply'
+            ? 'w-[280px]'
+            : 'min-w-[220px] w-[240px]',
       )}
       style={{
         left: pos.left,
         top: pos.top,
         visibility: ready ? 'visible' : 'hidden',
-        overflowY: view === 'emoji' ? 'auto' : undefined,
+        overflowY:
+          view === 'emoji' || view === 'addRequest' || view === 'addReply'
+            ? 'auto'
+            : undefined,
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -433,12 +463,34 @@ export function MessageContextMenu({
             {canCopy && (
               <MenuItem
                 icon={<Copy className="w-4 h-4" />}
-                label="Копировать текст"
+                label={quoteText ? 'Копировать выделенное' : 'Копировать текст'}
                 onClick={() => {
                   onCopy()
                   onClose()
                 }}
               />
+            )}
+            {showTaskActions && (
+              <>
+                <div className="mx-1 my-1 h-px bg-surface-inset" />
+                <MenuItem
+                  icon={<ClipboardList className="w-4 h-4" />}
+                  label="Создать задачу"
+                  onClick={handleCreateTask}
+                />
+                <MenuItem
+                  icon={<ListPlus className="w-4 h-4" />}
+                  label="Добавить к задаче…"
+                  trailing={<ChevronRight className="w-3.5 h-3.5 text-ink-muted" />}
+                  onClick={() => openTaskPicker('request')}
+                />
+                <MenuItem
+                  icon={<MessageSquareReply className="w-4 h-4" />}
+                  label="Добавить как ответ в задачу…"
+                  trailing={<ChevronRight className="w-3.5 h-3.5 text-ink-muted" />}
+                  onClick={() => openTaskPicker('reply')}
+                />
+              </>
             )}
             {canShowPinAction && (
               <MenuItem
@@ -576,6 +628,79 @@ export function MessageContextMenu({
             )}
           </div>
         </div>
+      ) : view === 'addRequest' || view === 'addReply' ? (
+        <div key={view} className="animate-[tg-ctx-fade_120ms_ease-out]">
+          <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
+            <button
+              type="button"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface-inset hover:text-ink transition-colors"
+              aria-label="Назад"
+              title="Назад"
+              onClick={goBack}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="relative flex-1 min-w-0">
+              <span
+                className="pointer-events-none absolute inset-y-0 left-0 flex w-8 items-center justify-center"
+                aria-hidden
+              >
+                <Search
+                  className="block w-3.5 h-3.5 text-ink-muted"
+                  strokeWidth={2}
+                />
+              </span>
+              <input
+                ref={taskSearchRef}
+                type="text"
+                value={taskQuery}
+                onChange={(e) => setTaskQuery(e.target.value)}
+                placeholder={
+                  view === 'addReply' ? 'Ответ в задачу…' : 'Добавить к задаче…'
+                }
+                className="tg-ctx-field w-full h-8 rounded-lg pl-8 pr-2.5 text-[13px] leading-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    goBack()
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <div className="mx-2 h-px bg-surface-inset" />
+          <div className="max-h-56 overflow-y-auto py-1.5 px-1.5">
+            {filteredTasks.length === 0 ? (
+              <div className="py-6 px-2 text-center text-[12.5px] text-ink-faint">
+                {tasks.filter((t) => t.status !== 'archived').length === 0
+                  ? 'Нет задач. Создайте первую.'
+                  : 'Ничего не найдено'}
+              </div>
+            ) : (
+              filteredTasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-inset"
+                  onClick={() =>
+                    handlePickTask(
+                      task.id,
+                      view === 'addReply' ? 'reply' : 'request',
+                    )
+                  }
+                >
+                  <span className="text-[12px] font-semibold text-[color:var(--accent)]">
+                    #{task.tag}
+                  </span>
+                  <span className="text-[13px] text-ink line-clamp-2">
+                    {task.title}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
       ) : (
         <div key="emoji" className="animate-[tg-ctx-fade_120ms_ease-out]">
           <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
@@ -615,13 +740,13 @@ export function MessageContextMenu({
             </div>
           </div>
 
-          <div className="tg-ctx-emoji-scroll max-h-60 overflow-y-auto px-2 pb-2">
+          <div className="tg-ctx-emoji-scroll max-h-72 overflow-y-auto px-2 pb-2">
             {filtered.length === 0 ? (
               <div className="py-8 text-center text-[12.5px] text-ink-faint">
                 Ничего не найдено
               </div>
             ) : (
-              <div className="grid grid-cols-6 gap-1">
+              <div className="grid grid-cols-7 gap-0.5">
                 {filtered.map(({ emoji }) => (
                   <button
                     key={emoji}
@@ -648,11 +773,13 @@ function MenuItem({
   label,
   onClick,
   danger,
+  trailing,
 }: {
   icon: React.ReactNode
   label: string
   onClick: () => void
   danger?: boolean
+  trailing?: React.ReactNode
 }) {
   return (
     <button
@@ -669,7 +796,8 @@ function MenuItem({
       <span className={clsx('shrink-0', danger ? 'text-red-400' : 'text-ink-muted')}>
         {icon}
       </span>
-      <span className="flex-1">{label}</span>
+      <span className="flex-1 min-w-0">{label}</span>
+      {trailing ? <span className="shrink-0">{trailing}</span> : null}
     </button>
   )
 }

@@ -23,6 +23,7 @@ import {
   LogOut,
   Mail,
   Palette,
+  RefreshCw,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -72,6 +73,13 @@ import { ChatProtectionWizard } from './ChatProtectionWizard'
 import { clsx } from 'clsx'
 import { matrixService } from '@/shared/api/MatrixService'
 import { useVerificationUiStore } from '@/shared/lib/verificationUi'
+import {
+  checkForAppUpdates,
+  getBundledAppVersion,
+  openUpdatePage,
+  type AppUpdateCheckResult,
+  GITHUB_RELEASES_URL,
+} from '@/shared/lib/appUpdate'
 
 type SettingsModalProps = {
   isOpen: boolean
@@ -137,6 +145,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [reportStatus, setReportStatus] = useState<string | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState(() => getBundledAppVersion())
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateResult, setUpdateResult] =
+    useState<AppUpdateCheckResult | null>(null)
 
   const packs = useStickersStore((s) => s.packs)
 
@@ -166,12 +178,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   useEffect(() => {
     if (!isOpen) {
       setPage('home')
+      setUpdateResult(null)
       return
     }
     pushBreadcrumb('settings_open')
     useErrorLogStore.getState().hydrate()
     useChatListPrefsStore.getState().hydrate()
     useNotificationPrefsStore.getState().hydrate()
+    void window.electronAPI?.getAppVersion?.().then((v) => {
+      if (typeof v === 'string' && v.trim()) setAppVersion(v.trim())
+    })
   }, [isOpen])
 
   useEffect(() => {
@@ -361,6 +377,30 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       console.error('Failed to start device verification', err)
     }
   }
+  const handleCheckUpdates = async () => {
+    if (updateBusy) return
+    setUpdateBusy(true)
+    setUpdateResult(null)
+    try {
+      const result = await checkForAppUpdates()
+      setUpdateResult(result)
+      if (result.currentVersion) setAppVersion(result.currentVersion)
+      pushBreadcrumb('settings_check_updates', { status: result.status })
+    } catch (err) {
+      console.error('Update check failed', err)
+      setUpdateResult({
+        ok: false,
+        status: 'error',
+        currentVersion: appVersion,
+        releaseUrl: GITHUB_RELEASES_URL,
+        message:
+          err instanceof Error ? err.message : 'Не удалось проверить обновления',
+      })
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
+
   const handleLogout = async () => {
     if (isLoggingOut) return
     setIsLoggingOut(true)
@@ -757,6 +797,91 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <KeyRound className="w-4 h-4" />
                           Восстановить доступ к истории
                         </button>
+                      </div>
+
+                      <div className="rounded-xl bg-surface-inset border border-hairline p-4 space-y-3">
+                        <div className="text-[12px] uppercase tracking-wide text-ink-muted font-medium">
+                          О приложении
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm text-ink font-medium">
+                              Planetar
+                            </div>
+                            <div className="text-xs text-ink-muted mt-0.5">
+                              Версия {appVersion}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleCheckUpdates()}
+                            disabled={updateBusy}
+                            className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/50 text-ink text-[12.5px] font-medium px-3 py-2 transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw
+                              className={clsx(
+                                'w-3.5 h-3.5',
+                                updateBusy && 'animate-spin',
+                              )}
+                            />
+                            {updateBusy ? 'Проверка…' : 'Проверить обновления'}
+                          </button>
+                        </div>
+
+                        {updateResult && (
+                          <div className="space-y-2">
+                            <div
+                              className={clsx(
+                                'text-[12.5px] leading-relaxed',
+                                updateResult.status === 'update-available'
+                                  ? 'text-ink'
+                                  : updateResult.status === 'error'
+                                    ? 'text-red-300'
+                                    : 'text-ink-muted',
+                              )}
+                            >
+                              {updateResult.message ||
+                                (updateResult.status === 'up-to-date'
+                                  ? 'Установлена актуальная версия'
+                                  : updateResult.status === 'update-available'
+                                    ? `Доступна версия ${updateResult.latestVersion}`
+                                    : 'Не удалось проверить обновления')}
+                            </div>
+                            {(updateResult.status === 'update-available' ||
+                              updateResult.status === 'no-release' ||
+                              updateResult.status === 'error') && (
+                              <div className="flex flex-wrap gap-2">
+                                {updateResult.status === 'update-available' &&
+                                  updateResult.downloadUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void openUpdatePage(
+                                          updateResult.downloadUrl!,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-accent/40 hover:bg-accent/60 border border-accent/50 text-ink text-[12px] font-medium px-2.5 py-1.5 transition-colors"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      Скачать
+                                    </button>
+                                  )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void openUpdatePage(
+                                      updateResult.releaseUrl ||
+                                        GITHUB_RELEASES_URL,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface-inset hover:bg-white/5 text-ink text-[12px] font-medium px-2.5 py-1.5 transition-colors"
+                                >
+                                  Открыть на GitHub
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <button

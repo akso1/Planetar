@@ -6,6 +6,7 @@ import { ErrorBoundary } from './shared/ui/ErrorBoundary'
 import { AppToastHost } from './shared/ui/AppToastHost'
 import { installRendererErrorReporting } from '@/shared/lib/errorLog'
 import { initTheme, readStoredTheme, applyTheme, applyVibrancyEnabled, readVibrancyEnabled } from '@/shared/lib/theme'
+import { initBizTasks } from '@/shared/lib/bizTasks'
 import { TitleBar } from '@/widgets/TitleBar'
 import { ChatListSkeleton } from '@/widgets/ChatListSkeleton'
 
@@ -22,6 +23,7 @@ function AppContent() {
     // Prefer stored theme; empty → :root / theme-dark defaults
     applyTheme(readStoredTheme())
     applyVibrancyEnabled(readVibrancyEnabled())
+    initBizTasks()
   }, [])
 
   useEffect(() => {

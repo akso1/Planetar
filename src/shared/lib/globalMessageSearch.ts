@@ -31,8 +31,8 @@ export const GLOBAL_SEARCH_PAGE_SIZE = 20
 const HIT_CAP = 2000
 const SCROLLBACK_SIZE = 80
 /** Scrollback calls per "load more" — keeps UI snappy. */
-const SCROLLBACK_BATCH = 12
-const MAX_PAGES_PER_ROOM = 60
+const SCROLLBACK_BATCH = 8
+const MAX_PAGES_PER_ROOM = 16
 /** Server pages during the initial quick pass. */
 const QUICK_SERVER_PAGES = 3
 /** Extra server pages per deepen. */

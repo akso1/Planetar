@@ -46,6 +46,8 @@ function toTwemojiCodes(emoji: string): string[] {
   } else {
     // Simple emoji: FE0F is never in the asset filename
     add(stripped)
+    // Some packs / lookups still use the FE0F form — try as fallback
+    if (stripped.length === 1) add([stripped[0], 0xfe0f])
   }
 
   // Last-resort fallbacks (rare / incomplete packs)

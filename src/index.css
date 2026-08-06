@@ -17,6 +17,17 @@
   --call-hangup: #ef4444;
   --call-hangup-hover: #dc2626;
 
+  /* BizDev task statuses — soft tint tokens (glass-friendly) */
+  --status-done: #34d399;
+  --status-done-soft: color-mix(in srgb, var(--status-done) 18%, transparent);
+  --status-done-border: color-mix(in srgb, var(--status-done) 42%, transparent);
+  --status-waiting: #fbbf24;
+  --status-waiting-soft: color-mix(in srgb, var(--status-waiting) 16%, transparent);
+  --status-waiting-border: color-mix(in srgb, var(--status-waiting) 42%, transparent);
+  --status-alert: #f87171;
+  --status-alert-soft: color-mix(in srgb, var(--status-alert) 16%, transparent);
+  --status-alert-border: color-mix(in srgb, var(--status-alert) 42%, transparent);
+
   --app-bg: var(--color-bg);
   --app-bg-elevated: var(--color-sidebar);
   --surface: var(--color-sidebar);
@@ -99,6 +110,16 @@
   --color-text-muted: #6b7280;
   --color-accent: #2563eb;
   --color-on-accent: #ffffff;
+
+  --status-done: #059669;
+  --status-done-soft: color-mix(in srgb, var(--status-done) 12%, transparent);
+  --status-done-border: color-mix(in srgb, var(--status-done) 32%, transparent);
+  --status-waiting: #d97706;
+  --status-waiting-soft: color-mix(in srgb, var(--status-waiting) 12%, transparent);
+  --status-waiting-border: color-mix(in srgb, var(--status-waiting) 32%, transparent);
+  --status-alert: #dc2626;
+  --status-alert-soft: color-mix(in srgb, var(--status-alert) 10%, transparent);
+  --status-alert-border: color-mix(in srgb, var(--status-alert) 28%, transparent);
 
   --app-bg: var(--color-bg);
   --app-bg-elevated: var(--color-sidebar);
@@ -3941,6 +3962,94 @@ html:is(.theme-light, .theme-custom-light) .tg-chat-peek-footer {
   box-shadow: var(--panel-shadow);
   overflow: hidden;
   color: var(--color-text);
+}
+
+.tg-sticker-picker--gif {
+  width: min(380px, calc(100vw - 24px));
+  height: 360px;
+}
+
+.tg-gif-masonry {
+  column-count: 2;
+  column-gap: 6px;
+}
+
+.tg-gif-masonry__label {
+  column-span: all;
+  break-inside: avoid;
+}
+
+.tg-gif-tile {
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0;
+  break-inside: avoid;
+  background: var(--surface-inset);
+  line-height: 0;
+  max-height: 168px;
+  overflow: hidden;
+}
+
+.tg-gif-tile__img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.tg-gif-preview {
+  /* Hug the image — fixed + left/right alone otherwise expands to available width */
+  width: max-content;
+  max-width: min(var(--tg-gif-preview-max-w, 320px), calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  animation: tg-gif-preview-in 120ms ease-out;
+  box-sizing: border-box;
+}
+
+.tg-gif-preview__frame {
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--hairline-strong);
+  background: var(--menu-surface-solid);
+  box-shadow: var(--panel-shadow);
+  padding: 6px;
+  overflow: hidden;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.tg-gif-preview__img {
+  display: block;
+  max-width: min(var(--tg-gif-preview-max-w, 320px), calc(100vw - 40px));
+  max-height: min(var(--tg-gif-preview-max-h, 260px), calc(100vh - 56px));
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: calc(var(--radius-panel) - 4px);
+}
+
+.tg-gif-preview__caption {
+  margin-top: 6px;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  max-width: min(var(--tg-gif-preview-max-w, 320px), calc(100vw - 40px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes tg-gif-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .tg-sticker-picker .tg-field {

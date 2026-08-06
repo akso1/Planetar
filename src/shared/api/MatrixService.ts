@@ -145,6 +145,9 @@ class MatrixService {
   private startupPromise: Promise<boolean> | null = null;
   /** Single-flight for initRustCrypto — parallel callers await the same promise. */
   private cryptoReadyPromise: Promise<void> | null = null;
+  private syncListener:
+    | ((state: SyncState, prevState: SyncState | null, data?: any) => void)
+    | null = null;
 
   private cachedSecretStorageKey: {
     keyId: string;
@@ -528,6 +531,10 @@ class MatrixService {
       data?: any
     ) => void
   ) {
+    if (this.client && this.syncListener) {
+      this.client.removeListener("sync", this.syncListener);
+    }
+    this.syncListener = onSync;
     this.client?.on("sync", onSync);
   }
 
@@ -673,6 +680,7 @@ class MatrixService {
     }
 
     this.client = null;
+    this.syncListener = null;
     const roomStore = this.roomStore;
     this.roomStore = null;
     try {

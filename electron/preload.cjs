@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setDockBadge: (count) => ipcRenderer.invoke('set-dock-badge', count),
   isWindowFocused: () => ipcRenderer.invoke('is-window-focused'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximizeToggle: () => ipcRenderer.invoke('window-maximize-toggle'),
   windowClose: () => ipcRenderer.invoke('window-close'),

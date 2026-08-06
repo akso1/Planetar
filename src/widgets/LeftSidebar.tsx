@@ -1,5 +1,13 @@
 import { useState, useMemo, type ReactNode } from 'react'
-import { Send, Users, MessagesSquare, Cog, CheckCheck, LayoutGrid } from 'lucide-react'
+import {
+  Send,
+  Users,
+  MessagesSquare,
+  Cog,
+  CheckCheck,
+  LayoutGrid,
+  ClipboardList,
+} from 'lucide-react'
 import { clsx } from 'clsx'
 import {
   useRoomStore,
@@ -10,6 +18,7 @@ import {
   getSpacesChildUnreadTotal,
 } from '@/entities/session/model/room.store'
 import { useSessionStore } from '@/entities/session/model/session'
+import { useBizTasksStore } from '@/shared/lib/bizTasks'
 import { AppContextMenu } from '@/shared/ui/AppContextMenu'
 import { SettingsModal } from './SettingsModal'
 import { InvitesBell } from './InvitesBell'
@@ -26,6 +35,11 @@ export function LeftSidebar() {
     (state) => state.actions.markAllRoomsAsRead,
   )
   const client = useSessionStore((state) => state.client)
+  const tasksPanelOpen = useBizTasksStore((s) => s.panelOpen)
+  const setTasksPanelOpen = useBizTasksStore((s) => s.setPanelOpen)
+  const taskCount = useBizTasksStore((s) =>
+    s.tasks.filter((t) => t.status !== 'archived').length,
+  )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [navMenu, setNavMenu] = useState<{ x: number; y: number } | null>(null)
   const [readAllBusy, setReadAllBusy] = useState(false)
@@ -97,10 +111,15 @@ export function LeftSidebar() {
               type="button"
               className={clsx(
                 'tg-nav-btn relative group',
-                roomFilter === folder.id && 'tg-nav-btn--active',
+                !tasksPanelOpen &&
+                  roomFilter === folder.id &&
+                  'tg-nav-btn--active',
               )}
               title={folder.name}
-              onClick={() => setRoomFilter(folder.id)}
+              onClick={() => {
+                setTasksPanelOpen(false)
+                setRoomFilter(folder.id)
+              }}
               onContextMenu={(e) => {
                 if (folder.id !== 'all') return
                 e.preventDefault()
@@ -116,6 +135,23 @@ export function LeftSidebar() {
               )}
             </button>
           ))}
+
+          <button
+            type="button"
+            className={clsx(
+              'tg-nav-btn relative group',
+              tasksPanelOpen && 'tg-nav-btn--active',
+            )}
+            title="Задачи"
+            onClick={() => setTasksPanelOpen(true)}
+          >
+            <ClipboardList className={iconStyle} strokeWidth={1.75} />
+            {taskCount > 0 && (
+              <span className="tg-nav-badge">
+                {taskCount > 99 ? '99+' : taskCount}
+              </span>
+            )}
+          </button>
         </div>
 
         <div className="mt-auto flex flex-col gap-2">

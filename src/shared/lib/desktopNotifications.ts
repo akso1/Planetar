@@ -105,6 +105,16 @@ async function syncDockBadge(client: MatrixClient) {
   }
 }
 
+/** Coalesce badge updates — timeline storms used to scan every room per event. */
+let dockBadgeTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleDockBadge(client: MatrixClient) {
+  if (dockBadgeTimer) return
+  dockBadgeTimer = setTimeout(() => {
+    dockBadgeTimer = null
+    void syncDockBadge(client)
+  }, 800)
+}
+
 async function shouldSuppressForRoom(roomId: string): Promise<boolean> {
   if (!areNotificationsEnabled()) return true
   if (isRoomMuted(roomId)) return true
@@ -235,10 +245,6 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
     if (!armed || !room) return
     if (!areNotificationsEnabled()) return
     if (isRoomMuted(room.roomId)) {
-      console.info(
-        '[notifications] пропуск — чат без звука:',
-        room.name || room.roomId,
-      )
       return
     }
     if (!myUserId) return
@@ -260,10 +266,6 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
     if (age > 90_000) return
 
     if (await shouldSuppressForRoom(room.roomId)) {
-      console.info(
-        '[notifications] пропуск — этот чат открыт и окно в фокусе:',
-        room.name || room.roomId,
-      )
       return
     }
 
@@ -284,9 +286,6 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
         if (event.getSender() === myUserId) return
         if (isReplaceOrReaction(event)) return
         if (await shouldSuppressForRoom(room.roomId)) {
-          console.info(
-            '[notifications] пропуск после decrypt — чат снова в фокусе',
-          )
           return
         }
       }
@@ -320,15 +319,15 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
     // Only skip when SDK explicitly marks as non-live
     if (data?.liveEvent === false) return
     void maybeNotify(event, room ?? undefined)
-    void syncDockBadge(client)
+    scheduleDockBadge(client)
   }
 
   const onUnread = () => {
-    void syncDockBadge(client)
+    scheduleDockBadge(client)
   }
 
   const onSync = () => {
-    void syncDockBadge(client)
+    scheduleDockBadge(client)
   }
 
   client.on(RoomEvent.Timeline, onTimeline)
@@ -349,6 +348,10 @@ export function startDesktopNotifications(client: MatrixClient): () => void {
 
   return () => {
     window.clearTimeout(armTimer)
+    if (dockBadgeTimer) {
+      clearTimeout(dockBadgeTimer)
+      dockBadgeTimer = null
+    }
     unbindPushRules()
     client.removeListener(RoomEvent.Timeline, onTimeline)
     client.removeListener(RoomEvent.UnreadNotifications, onUnread)

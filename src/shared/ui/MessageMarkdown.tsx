@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { clsx } from 'clsx'
@@ -120,8 +121,10 @@ function linkifyMentions(text: string, members: MentionMember[]): string {
 /**
  * Renders Matrix message body with Markdown + per-user colored mention pills.
  * Unicode emoji are drawn via Twemoji images (reliable in Electron).
+ * Memoized so timeline re-renders (receipts / hover) don't rebuild DOM and
+ * wipe an in-progress text selection.
  */
-export function MessageMarkdown({
+export const MessageMarkdown = memo(function MessageMarkdown({
   text,
   className,
   members = [],
@@ -221,7 +224,7 @@ export function MessageMarkdown({
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 export function mentionPillClassName(extra?: string) {
   return clsx(MENTION_PILL_BASE, extra)

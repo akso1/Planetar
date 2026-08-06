@@ -42,6 +42,23 @@ function displayNameForUser(client: MatrixClient, userId: string): string {
   return local || userId
 }
 
+/** Prefer room avatar; fall back to inviter profile (DM invites often have no room avatar yet). */
+function avatarMxcForInvite(
+  client: MatrixClient,
+  room: Room,
+  inviterId: string | null,
+): string | null {
+  const roomAvatar = room.getMxcAvatarUrl?.() ?? null
+  if (roomAvatar) return roomAvatar
+  if (!inviterId) return null
+
+  const fromMember = room.getMember(inviterId)?.getMxcAvatarUrl?.() ?? null
+  if (fromMember) return fromMember
+
+  const fromUser = client.getUser(inviterId)?.avatarUrl ?? null
+  return fromUser || null
+}
+
 function memberInviteEvent(
   room: Room,
   myUserId: string,
@@ -96,7 +113,7 @@ export function collectRoomInvites(client: MatrixClient): RoomInviteInfo[] {
       isDirect,
       inviterId,
       inviterName: inviterId ? displayNameForUser(client, inviterId) : null,
-      avatarMxc: room.getMxcAvatarUrl?.() ?? null,
+      avatarMxc: avatarMxcForInvite(client, room, inviterId),
       memberCount: room.getInvitedAndJoinedMemberCount?.() ?? 0,
       ts: roomInviteTs(room, myId),
     })

@@ -31,6 +31,17 @@ export type ElectronAPI = {
   setDockBadge?: (count: number) => Promise<void>
   isWindowFocused?: () => Promise<boolean>
   getPlatform?: () => Promise<NodeJS.Platform>
+  getAppVersion?: () => Promise<string>
+  checkForUpdates?: () => Promise<{
+    ok: boolean
+    status: 'up-to-date' | 'update-available' | 'no-release' | 'error'
+    currentVersion: string
+    latestVersion?: string
+    releaseUrl: string
+    downloadUrl?: string
+    releaseName?: string
+    message?: string
+  }>
   windowMinimize?: () => Promise<{ ok: boolean }>
   windowMaximizeToggle?: () => Promise<{ ok: boolean; maximized: boolean }>
   windowClose?: () => Promise<{ ok: boolean }>
