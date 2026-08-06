@@ -15,7 +15,7 @@ export type BizTaskLinkKind = 'request' | 'reply'
 /** List placement: active workspace vs archive (separate from pipeline). */
 export type BizTaskListStatus = 'active' | 'archived'
 
-/** BizDev pipeline statuses (цветные чипы в UI). */
+/** Task pipeline statuses (цветные чипы в UI). */
 export type BizTaskPipelineStatus =
   | 'active'
   | 'waiting'
@@ -37,8 +37,8 @@ export const BIZ_TASK_STATUSES = BIZ_TASK_PIPELINE_STATUSES
 
 export const BIZ_TASK_PIPELINE_LABEL: Record<BizTaskPipelineStatus, string> = {
   active: 'В работе',
-  waiting: 'Ожидаю',
-  no_offers: 'Нет предложений',
+  waiting: 'Ожидание',
+  no_offers: 'Без ответа',
   done: 'Завершена',
 }
 
@@ -65,7 +65,7 @@ export type BizTask = {
   title: string
   /** active workspace | archive — NOT the colored pipeline chip */
   status: BizTaskListStatus
-  /** Colored bizdev pipeline chip */
+  /** Colored pipeline chip */
   pipelineStatus: BizTaskPipelineStatus
   createdAt: number
   updatedAt: number
@@ -406,7 +406,7 @@ type BizTasksState = {
     kind: BizTaskLinkKind,
     ref: BizTaskMessageRef,
   ) => boolean
-  /** Colored pipeline chip (В работе / Ожидаю / …) */
+  /** Colored pipeline chip (В работе / Ожидание / …) */
   setTaskStatus: (taskId: string, pipelineStatus: BizTaskPipelineStatus) => void
   setPipelineStatus: (
     taskId: string,

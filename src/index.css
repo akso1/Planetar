@@ -17,7 +17,7 @@
   --call-hangup: #ef4444;
   --call-hangup-hover: #dc2626;
 
-  /* BizDev task statuses — soft tint tokens (glass-friendly) */
+  /* Task statuses — soft tint tokens (glass-friendly) */
   --status-done: #34d399;
   --status-done-soft: color-mix(in srgb, var(--status-done) 18%, transparent);
   --status-done-border: color-mix(in srgb, var(--status-done) 42%, transparent);

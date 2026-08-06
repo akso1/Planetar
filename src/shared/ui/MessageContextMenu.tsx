@@ -87,7 +87,7 @@ export type MessageContextMenuProps = {
   onUnpinForSelf?: () => void
   onSaveGif?: () => void
   onReact: (emoji: string) => void
-  /** When set, shows BizDev task actions for this message */
+  /** When set, shows task actions for this message */
   bizTaskRef?: BizTaskMessageRef | null
 }
 

@@ -17,6 +17,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Local Telegram↔Matrix bridge (has real .env tokens — never push)
+telegram-matrix-bridge/
+
 # Twemoji PNGs (run: bash scripts/fetch-twemoji.sh)
 src/assets/twemoji/
 public/twemoji/

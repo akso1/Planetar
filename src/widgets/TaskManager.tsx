@@ -502,7 +502,7 @@ export function TaskManager() {
               {requests.length > 0 && (
                 <div>
                   <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted mb-2">
-                    Вопрос / запросы
+                    Исходные сообщения
                   </h4>
                   <div className="space-y-2">
                     {requests.map((link) => (
@@ -522,8 +522,8 @@ export function TaskManager() {
                 </h4>
                 {replies.length === 0 ? (
                   <div className="rounded-2xl border border-hairline bg-[var(--surface-glass)] px-4 py-8 text-center text-[13px] text-ink-faint">
-                    Пока нет ответов. ПКМ по сообщению партнёра → «Добавить
-                    как ответ в задачу…»
+                    Пока нет ответов. ПКМ по сообщению → «Добавить как ответ
+                    в задачу…»
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -579,7 +579,7 @@ function LinkCard({
           ) : (
             <Send className="w-3 h-3" />
           )}
-          {isReply ? 'Ответ' : 'Запрос'}
+          {isReply ? 'Ответ' : 'Сообщение'}
         </span>
         <span className="text-[12px] text-[color:var(--accent)] truncate">
           {link.roomName}
