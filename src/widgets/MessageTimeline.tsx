@@ -62,6 +62,7 @@ import {
   acquireCachedObjectUrl,
   downloadMessageAttachment,
   downloadMessageAttachmentPreview,
+  dropCachedObjectUrl,
   releaseCachedObjectUrl,
   timelinePreviewContent,
 } from '@/shared/lib/matrixMedia'
@@ -661,10 +662,16 @@ function useAttachmentObjectUrl(
   const client = useSessionStore((state) => state.client)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const retriesRef = useRef(0)
   const preview =
     mode === 'preview' && content ? timelinePreviewContent(content) : content
   const mxcUrl = preview?.file?.url || preview?.url || null
   const cacheKey = mxcUrl ? `${mode}:${mxcUrl}|${fallbackMime}` : null
+
+  useEffect(() => {
+    retriesRef.current = 0
+  }, [cacheKey])
 
   useEffect(() => {
     if (!enabled) {
@@ -721,9 +728,23 @@ function useAttachmentObjectUrl(
       setObjectUrl(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, cacheKey, fallbackMime, enabled, mode])
+  }, [client, cacheKey, fallbackMime, enabled, mode, reloadNonce])
 
-  return { objectUrl, error }
+  const retryObjectUrl = () => {
+    if (!cacheKey) return
+    if (retriesRef.current >= 1) {
+      setObjectUrl(null)
+      setError(true)
+      return
+    }
+    retriesRef.current += 1
+    dropCachedObjectUrl(cacheKey)
+    setObjectUrl(null)
+    setError(false)
+    setReloadNonce((n) => n + 1)
+  }
+
+  return { objectUrl, error, retryObjectUrl }
 }
 
 function MediaSkeleton({
@@ -807,7 +828,7 @@ const MediaImage: React.FC<{
 }> = ({ content, imageId, className, fill, variant = 'image' }) => {
   const { ref, near } = useNearViewport()
   const isSticker = variant === 'sticker'
-  const { objectUrl, error } = useAttachmentObjectUrl(
+  const { objectUrl, error, retryObjectUrl } = useAttachmentObjectUrl(
     content,
     content?.info?.mimetype ||
       content?.file?.mimetype ||
@@ -851,6 +872,7 @@ const MediaImage: React.FC<{
               alt={content.body || (isSticker ? 'Sticker' : 'Image')}
               className={className || 'w-full h-full object-cover'}
               draggable={false}
+              onError={() => retryObjectUrl()}
             />
           </button>
         )}
@@ -899,6 +921,7 @@ const MediaImage: React.FC<{
             }
             style={{ objectFit: isSticker ? 'contain' : 'cover' }}
             draggable={false}
+            onError={() => retryObjectUrl()}
           />
         </button>
       )}

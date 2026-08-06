@@ -1,7 +1,7 @@
 {
   "name": "planetar",
   "private": true,
-  "version": "0.15.5",
+  "version": "0.15.6",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -14,7 +14,8 @@
     "prebuild:dmg": "test -d public/twemoji/72x72 || npm run twemoji:fetch",
     "prebuild:win": "test -d public/twemoji/72x72 || npm run twemoji:fetch",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "twemoji:index": "bash scripts/generate-twemoji-index.sh"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",

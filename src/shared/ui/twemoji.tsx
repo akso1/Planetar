@@ -1,4 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  twemojiCodeExists,
+  twemojiKnownCodeCount,
+} from '@/shared/ui/twemojiCodes.generated'
 
 /**
  * Local Twemoji PNGs from `public/twemoji/72x72` (copied into dist / asar).
@@ -14,9 +18,10 @@ const EMOJI_RE =
   /(?:\p{Extended_Pictographic}(?:\uFE0F)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F)?)*)|(?:\d\uFE0F\u20E3)|(?:[#*]\uFE0F\u20E3)/gu
 
 /**
- * Twemoji filename rule (same as jdecked/twemoji):
- * - no ZWJ → strip U+FE0F / U+FE0E (❤ → `2764.png`, not `2764-fe0f.png`)
- * - with ZWJ → keep FE0F in the sequence (`2764-fe0f-200d-1f525.png`)
+ * Build candidate Twemoji basenames for a grapheme.
+ * Pack naming is inconsistent for ZWJ (👁‍🗨 → `1f441-200d-1f5e8`,
+ * ❤🔥 → `2764-fe0f-200d-1f525`), so we try several FE0F variants and
+ * only request codes that exist in the generated index — no console 404s.
  */
 function toTwemojiCodes(emoji: string): string[] {
   const raw: number[] = []
@@ -40,23 +45,37 @@ function toTwemojiCodes(emoji: string): string[] {
   }
 
   if (hasZwj) {
-    // Prefer official ZWJ name with FE0F kept
+    // Prefer stripped first — matches eye-in-speech-bubble and many ZWJ packs
+    add(stripped)
     add(noTextVs)
-    add(stripped)
+    // Drop trailing FE0F only (…-1f5e8-fe0f → …-1f5e8)
+    if (noTextVs.length > 1 && noTextVs[noTextVs.length - 1] === 0xfe0f) {
+      add(noTextVs.slice(0, -1))
+    }
+    // Insert FE0F after every non-ZWJ codepoint (heart-on-fire / jdecked style)
+    const fe0fEverywhere: number[] = []
+    for (const cp of stripped) {
+      fe0fEverywhere.push(cp)
+      if (cp !== 0x200d) fe0fEverywhere.push(0xfe0f)
+    }
+    if (fe0fEverywhere[fe0fEverywhere.length - 1] === 0xfe0f) {
+      add(fe0fEverywhere.slice(0, -1))
+    }
+    add(fe0fEverywhere)
   } else {
-    // Simple emoji: FE0F is never in the asset filename
     add(stripped)
-    // Some packs / lookups still use the FE0F form — try as fallback
-    if (stripped.length === 1) add([stripped[0], 0xfe0f])
+    if (stripped.length === 1) add([stripped[0]!, 0xfe0f])
   }
 
-  // Last-resort fallbacks (rare / incomplete packs)
   if (stripped.length > 1) {
-    add([stripped[0]])
+    add([stripped[0]!])
     const noZwj = stripped.filter((cp) => cp !== 0x200d)
     if (noZwj.length && noZwj.length !== stripped.length) add(noZwj)
   }
-  return codes
+
+  // Only codes that exist on disk — never hit ERR_FILE_NOT_FOUND
+  const existing = codes.filter((c) => twemojiCodeExists(c))
+  return existing.length ? existing : codes.slice(0, 1)
 }
 
 function isEmojiGrapheme(segment: string): boolean {
@@ -86,7 +105,7 @@ function forEachEmoji(
   }
 }
 
-/** Local Twemoji <img> from public/. Tries candidate filenames until one loads. */
+/** Local Twemoji <img> from public/. Only loads filenames known to exist. */
 export function TwemojiImg({
   emoji,
   className = 'tg-twemoji',
@@ -95,18 +114,22 @@ export function TwemojiImg({
   className?: string
 }) {
   const codes = useMemo(() => toTwemojiCodes(emoji), [emoji])
+  const known = useMemo(
+    () => codes.filter((c) => twemojiCodeExists(c)),
+    [codes],
+  )
   const [idx, setIdx] = useState(0)
-  const [failed, setFailed] = useState(codes.length === 0)
+  const [failed, setFailed] = useState(known.length === 0)
 
   useEffect(() => {
     setIdx(0)
-    setFailed(codes.length === 0)
-  }, [emoji, codes])
+    setFailed(known.length === 0)
+  }, [emoji, known])
 
-  const src = !failed && codes[idx] ? twemojiPublicUrl(codes[idx]) : null
+  const code = !failed && known[idx] ? known[idx] : null
+  const src = code ? twemojiPublicUrl(code) : null
 
   if (!src) {
-    // Keep native glyph as last resort (no debug hex in UI)
     return (
       <span className="tg-twemoji tg-twemoji--native" title={emoji}>
         {emoji}
@@ -124,7 +147,8 @@ export function TwemojiImg({
       loading="lazy"
       decoding="async"
       onError={() => {
-        if (idx + 1 < codes.length) setIdx(idx + 1)
+        // Should be rare (index out of date). Fall through candidates then native.
+        if (idx + 1 < known.length) setIdx(idx + 1)
         else setFailed(true)
       }}
     />
@@ -168,9 +192,9 @@ export function withTwemoji(children: ReactNode): ReactNode {
 }
 
 export function twemojiAssetCount(): number {
-  return -1
+  return twemojiKnownCodeCount()
 }
 
-export function twemojiHasCode(_code: string): boolean {
-  return true
+export function twemojiHasCode(code: string): boolean {
+  return twemojiCodeExists(code)
 }

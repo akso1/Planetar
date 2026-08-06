@@ -24,7 +24,7 @@ const objectUrlInflight = new Map<string, Promise<string>>()
 /** In-memory blobs keyed by synthetic `mxc://planetar.local/…` for optimistic send. */
 const localMediaBlobs = new Map<string, Blob>()
 
-const OBJECT_URL_REVOKE_DELAY_MS = 60_000
+const OBJECT_URL_REVOKE_DELAY_MS = 180_000
 
 const LOCAL_MEDIA_MXC_PREFIX = 'mxc://planetar.local/'
 
@@ -165,6 +165,19 @@ export function releaseCachedObjectUrl(cacheKey: string): void {
   entry.refs = Math.max(0, entry.refs - 1)
   if (entry.refs > 0) return
   scheduleIdleRevoke(cacheKey)
+}
+
+/** Drop a broken blob URL immediately (e.g. browser reported load error). */
+export function dropCachedObjectUrl(cacheKey: string): void {
+  const entry = objectUrlCache.get(cacheKey)
+  if (!entry) return
+  if (entry.revokeTimer) clearTimeout(entry.revokeTimer)
+  try {
+    URL.revokeObjectURL(entry.url)
+  } catch {
+    /* ignore */
+  }
+  objectUrlCache.delete(cacheKey)
 }
 
 /**
